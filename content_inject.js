@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  console.log('%c[Fingerprint Shield v2.5.0]%c Pure Prototype Stealth Suite initialized', 'color: #38bdf8; font-weight: bold;', 'color: #9ca3af;');
+  console.log('%c[Fingerprint Shield v2.6.0]%c Synchronous Iframe & Cross-Realm Stealth Suite initialized', 'color: #38bdf8; font-weight: bold;', 'color: #9ca3af;');
 
   let probeCounts = {
     userAgent: 0,
@@ -416,7 +416,7 @@
 
     applyStealthToStringToWindow(targetWin);
 
-    // STRICT PROTOTYPE-ONLY GETTER OVERRIDE (Never attaches own properties on navigator/screen)
+    // STRICT PROTOTYPE-ONLY GETTER OVERRIDE (Zero own properties on navigator)
     function overridePrototypeGetter(protoTarget, prop, getValueFn, category, detailLabel) {
       if (!protoTarget) return;
       try {
@@ -547,7 +547,8 @@
 
     // Multi-Monitor & Screen Details API Masking (PROTOTYPE ONLY)
     if (targetWin.screen) {
-      const scrProto = Object.getPrototypeOf(targetWin.screen) || targetWin.Screen?.prototype;
+      const scr = targetWin.screen;
+      const scrProto = Object.getPrototypeOf(scr) || targetWin.Screen?.prototype;
       if (scrProto) overridePrototypeGetter(scrProto, 'isExtended', () => false, 'screen', 'screen.isExtended');
     }
 
@@ -1151,7 +1152,7 @@
     activeProfile = profile;
     patchWindowContext(window);
 
-    // Deep iFrame Hooking
+    // Deep Synchronous iFrame Hooking (contentWindow getter & DOM insertion)
     try {
       if (window.HTMLIFrameElement) {
         const desc = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, 'contentWindow');
@@ -1172,17 +1173,35 @@
     } catch (e) {}
 
     try {
-      const origCreateElement = document.createElement;
-      document.createElement = function (tagName, options) {
-        const el = origCreateElement.apply(this, arguments);
-        if (typeof tagName === 'string' && tagName.toLowerCase() === 'iframe') {
-          el.addEventListener('load', function () {
-            if (el.contentWindow) patchWindowContext(el.contentWindow);
-          });
-        }
-        return el;
-      };
-      registerStealthFn(document.createElement, 'createElement');
+      if (window.Node && window.Node.prototype.appendChild) {
+        const origAppendChild = window.Node.prototype.appendChild;
+        window.Node.prototype.appendChild = function (child) {
+          const res = origAppendChild.apply(this, arguments);
+          if (child && child.tagName && child.tagName.toLowerCase() === 'iframe') {
+            try {
+              if (child.contentWindow) patchWindowContext(child.contentWindow);
+            } catch (e) {}
+          }
+          return res;
+        };
+        registerStealthFn(window.Node.prototype.appendChild, 'appendChild');
+      }
+    } catch (e) {}
+
+    try {
+      if (window.Node && window.Node.prototype.insertBefore) {
+        const origInsertBefore = window.Node.prototype.insertBefore;
+        window.Node.prototype.insertBefore = function (newNode, referenceNode) {
+          const res = origInsertBefore.apply(this, arguments);
+          if (newNode && newNode.tagName && newNode.tagName.toLowerCase() === 'iframe') {
+            try {
+              if (newNode.contentWindow) patchWindowContext(newNode.contentWindow);
+            } catch (e) {}
+          }
+          return res;
+        };
+        registerStealthFn(window.Node.prototype.insertBefore, 'insertBefore');
+      }
     } catch (e) {}
   }
 

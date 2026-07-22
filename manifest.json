@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Header & Fingerprint Shield",
-  "version": "2.5.0",
-  "description": "Privacy-focused User-Agent, Client Hints, JS/WebGL OS fingerprint, Timezone, Web Worker, ServiceWorker, SVGRect, Storage Quota, Pure Prototype-Only Overrides (Zero Own Property Traps), W3C DeviceMemory Clamping (Max 8), Beacon Suite, WebRTC LAN Scrub, Multi-Monitor & Peripheral Shield for Brave & Chromium.",
+  "version": "2.6.0",
+  "description": "Privacy-focused User-Agent, Client Hints, JS/WebGL OS fingerprint, Timezone, Web Worker, ServiceWorker, SVGRect, Storage Quota, Synchronous Iframe Patching (Zero-Delay Clean Realm Inspection), W3C DeviceMemory Clamping (Max 8), Beacon Suite, WebRTC LAN Scrub, Multi-Monitor & Peripheral Shield for Brave & Chromium.",
   "permissions": [
     "declarativeNetRequest",
     "storage",
