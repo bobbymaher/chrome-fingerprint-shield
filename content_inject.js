@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  console.log('%c[Fingerprint Shield v1.5.1]%c Beacon Inspection & Blocking Logger initialized', 'color: #38bdf8; font-weight: bold;', 'color: #9ca3af;');
+  console.log('%c[Fingerprint Shield v1.6.0]%c Universal Beacon & Telemetry Blocking Shield initialized', 'color: #38bdf8; font-weight: bold;', 'color: #9ca3af;');
 
   let probeCounts = {
     userAgent: 0,
@@ -61,7 +61,7 @@
         const detailStr = detailInfo ? ` → ${detailInfo}` : '';
         probeLogCounts[category] = (probeLogCounts[category] || 0) + 1;
 
-        if (probeLogCounts[category] <= 20 || probeLogCounts[category] % 25 === 0) {
+        if (probeLogCounts[category] <= 25 || probeLogCounts[category] % 25 === 0) {
           if (inspectableObj) {
             console.groupCollapsed(
               `%c[Shield Probe]%c %c${category.toUpperCase()}%c${detailStr} %c(Total: ${probeCounts[category]})`,
@@ -71,7 +71,7 @@
               'color: #e2e8f0; font-weight: 500;',
               'color: #94a3b8; font-style: italic;'
             );
-            console.log('Intercepted Payload Data:', inspectableObj);
+            console.log('Blocked Telemetry Payload Data:', inspectableObj);
             console.groupEnd();
           } else {
             console.log(
@@ -615,9 +615,8 @@
     if (!nav) return;
     const navProto = Object.getPrototypeOf(nav) || targetWin.Navigator?.prototype || nav;
 
-    // 4. sendBeacon & HTML Anchor Ping Protection (WITH PAYLOAD INSPECTION LOGGING)
+    // 4. UNIVERSAL sendBeacon & HTML Anchor Ping Protection (BLOCKS ALL TELEMETRY BEACONS)
     if (nav.sendBeacon) {
-      const origSendBeacon = nav.sendBeacon;
       nav.sendBeacon = function (url, data) {
         let inspectObj = null;
         if (data) {
@@ -629,15 +628,8 @@
           }
         }
 
-        try {
-          const targetUrl = new URL(url, targetWin.location.href);
-          if (targetUrl.hostname !== targetWin.location.hostname) {
-            recordProbe('beacons', `sendBeacon("${url}") -> BLOCKED (3rd-Party Tracking)`, inspectObj);
-            return true; // Return true to trick fingerprinter without sending payload over network!
-          }
-        } catch (e) {}
-        recordProbe('beacons', `sendBeacon("${url}") -> ALLOWED (Same Origin)`, inspectObj);
-        return origSendBeacon.apply(this, arguments);
+        recordProbe('beacons', `sendBeacon("${url}") -> BLOCKED (Universal Telemetry Shield)`, inspectObj);
+        return true; // Return true to trick site telemetry/fingerprinter without sending ANY payload over network!
       };
     }
 

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Header & Fingerprint Shield",
-  "version": "1.5.1",
-  "description": "Privacy-focused User-Agent, Client Hints, JS/WebGL OS fingerprint, Timezone, Web Worker, ServiceWorker, SVGRect, Storage Quota, Beacon Inspector, WebRTC LAN Scrub, Multi-Monitor & Peripheral Shield for Brave & Chromium.",
+  "version": "1.6.0",
+  "description": "Privacy-focused User-Agent, Client Hints, JS/WebGL OS fingerprint, Timezone, Web Worker, ServiceWorker, SVGRect, Storage Quota, Universal Beacon Blocker, WebRTC LAN Scrub, Multi-Monitor & Peripheral Shield for Brave & Chromium.",
   "permissions": [
     "declarativeNetRequest",
     "storage",
