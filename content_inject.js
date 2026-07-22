@@ -1131,8 +1131,38 @@
     }
 
     // Brave Masking
-    if (activeProfile.maskBrave && navProto) {
-      overridePrototypeGetter(navProto, 'brave', () => undefined, 'brave', 'navigator.brave');
+    if (activeProfile.maskBrave) {
+      const emptyBraveGetter = function () {
+        recordProbe('brave', 'navigator.brave -> undefined');
+        return undefined;
+      };
+      registerStealthFn(emptyBraveGetter, 'get brave');
+
+      if (nav) {
+        try {
+          Object.defineProperty(nav, 'brave', {
+            get: emptyBraveGetter,
+            configurable: true,
+            enumerable: false
+          });
+        } catch (e) {}
+      }
+
+      if (navProto) {
+        try {
+          Object.defineProperty(navProto, 'brave', {
+            get: emptyBraveGetter,
+            configurable: true,
+            enumerable: false
+          });
+        } catch (e) {}
+      }
+
+      try {
+        if ('Brave' in targetWin) {
+          delete targetWin.Brave;
+        }
+      } catch (e) {}
     }
   }
 
