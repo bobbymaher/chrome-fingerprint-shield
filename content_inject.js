@@ -454,7 +454,12 @@
             if (prop === 'language') return 'en-US';
             if (prop === 'languages') return Object.freeze(['en-US', 'en']);
 
-            const val = Reflect.get(target, prop, receiver);
+            let val;
+            try {
+              val = Reflect.get(target, prop, target);
+            } catch (e) {
+              try { val = target[prop]; } catch (err) {}
+            }
             if (typeof val === 'function') {
               return val.bind(target);
             }
