@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  console.log('%c[Fingerprint Shield v1.6.0]%c Universal Beacon & Telemetry Blocking Shield initialized', 'color: #38bdf8; font-weight: bold;', 'color: #9ca3af;');
+  console.log('%c[Fingerprint Shield v1.8.0]%c Comprehensive Beacon Suite (sendBeacon, fetch keepalive, ping, pixels & iframes) initialized', 'color: #38bdf8; font-weight: bold;', 'color: #9ca3af;');
 
   let probeCounts = {
     userAgent: 0,
@@ -142,6 +142,7 @@
     maskBrave: true,
     spoofWebglAdvanced: true,
     blockBeacons: true,
+    blockSameOriginBeacons: true,
     spoofScreen: false
   };
 
@@ -615,7 +616,7 @@
     if (!nav) return;
     const navProto = Object.getPrototypeOf(nav) || targetWin.Navigator?.prototype || nav;
 
-    // 4. UNIVERSAL sendBeacon & HTML Anchor Ping Protection (BLOCKS ALL TELEMETRY BEACONS)
+    // 4. BEACON SUITE INTERCEPTION (sendBeacon, fetch keepalive, ping, pixels & iframes)
     if (nav.sendBeacon) {
       nav.sendBeacon = function (url, data) {
         let inspectObj = null;
@@ -628,8 +629,44 @@
           }
         }
 
-        recordProbe('beacons', `sendBeacon("${url}") -> BLOCKED (Universal Telemetry Shield)`, inspectObj);
-        return true; // Return true to trick site telemetry/fingerprinter without sending ANY payload over network!
+        let isThirdParty = false;
+        try {
+          const targetUrl = new URL(url, targetWin.location.href);
+          isThirdParty = targetUrl.hostname !== targetWin.location.hostname;
+        } catch (e) {}
+
+        const blockSameOrigin = activeProfile.blockSameOriginBeacons !== false;
+        const shouldBlock = isThirdParty || blockSameOrigin;
+
+        if (shouldBlock) {
+          recordProbe('beacons', `sendBeacon("${url}") -> BLOCKED (${isThirdParty ? '3rd-Party' : 'Same-Origin'} Telemetry)`, inspectObj);
+          return true;
+        }
+
+        recordProbe('beacons', `sendBeacon("${url}") -> ALLOWED (Same-Origin)`, inspectObj);
+        return nav.sendBeacon ? origSendBeacon.apply(this, arguments) : true;
+      };
+    }
+
+    // fetch() keepalive tracking beacon interception
+    if (targetWin.fetch) {
+      const origFetch = targetWin.fetch;
+      targetWin.fetch = function (resource, config) {
+        if (config && config.keepalive === true) {
+          const urlStr = typeof resource === 'string' ? resource : (resource && resource.url ? resource.url : '');
+          let isThirdParty = false;
+          try {
+            const targetUrl = new URL(urlStr, targetWin.location.href);
+            isThirdParty = targetUrl.hostname !== targetWin.location.hostname;
+          } catch(e) {}
+
+          const blockSameOrigin = activeProfile.blockSameOriginBeacons !== false;
+          if (isThirdParty || blockSameOrigin) {
+            recordProbe('beacons', `fetch(keepalive: true, "${urlStr}") -> BLOCKED (Telemetry Fetch Beacon)`, config.body);
+            return Promise.resolve(new Response('', { status: 200, statusText: 'OK' }));
+          }
+        }
+        return origFetch.apply(this, arguments);
       };
     }
 
