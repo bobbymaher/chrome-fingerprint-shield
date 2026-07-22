@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  console.log('%c[Fingerprint Shield v2.0.0]%c Complete Anti-Fingerprint Privacy Suite initialized', 'color: #38bdf8; font-weight: bold;', 'color: #9ca3af;');
+  console.log('%c[Fingerprint Shield v2.1.0]%c Stealth Suite (Worker Scope GL Sync, Prototype Integrity & Native Function Preservation) initialized', 'color: #38bdf8; font-weight: bold;', 'color: #9ca3af;');
 
   let probeCounts = {
     userAgent: 0,
@@ -105,6 +105,24 @@
     }
   }
 
+  // Native Function toString Preservation Registry
+  const stealthFnMap = new WeakMap();
+  if (typeof Function.prototype.toString === 'function') {
+    const origToString = Function.prototype.toString;
+    Function.prototype.toString = function () {
+      if (stealthFnMap.has(this)) {
+        return stealthFnMap.get(this);
+      }
+      return origToString.apply(this, arguments);
+    };
+  }
+
+  function registerStealthFn(fn, name) {
+    if (typeof fn === 'function' && name) {
+      stealthFnMap.set(fn, `function ${name}() { [native code] }`);
+    }
+  }
+
   // 1. Clean URLs (DOM Parameter Stripper)
   if (typeof window !== 'undefined' && window.location && window.history && window.history.replaceState) {
     try {
@@ -160,9 +178,11 @@
           { value: t3, taxonomyVersion: "1", modelVersion: "2", configVersion: "1" }
         ]);
       };
+      registerStealthFn(document.browsingTopics, 'browsingTopics');
     } catch (e) {}
   }
 
+  // Worker Code Generator with Full WebGL & Language Sync
   function generateWorkerShieldCode(profile) {
     return `(function() {
       'use strict';
@@ -170,31 +190,48 @@
       if (self.__WORKER_SHIELD_APPLIED__) return;
       self.__WORKER_SHIELD_APPLIED__ = true;
 
-      function overrideGetter(target, prop, value) {
+      function overrideGetter(target, prop, getValueFn) {
         try {
           Object.defineProperty(target, prop, {
-            get: () => value,
+            get: getValueFn,
             configurable: true,
             enumerable: true
           });
-        } catch(e) {
-          try { target[prop] = value; } catch(err) {}
-        }
+        } catch(e) {}
       }
 
       const nav = self.navigator;
       if (nav) {
         const navProto = Object.getPrototypeOf(nav) || nav;
-        overrideGetter(navProto, 'userAgent', profile.userAgent);
-        overrideGetter(nav, 'userAgent', profile.userAgent);
-        overrideGetter(navProto, 'appVersion', (profile.userAgent || '').replace(/^Mozilla\\//, ''));
-        overrideGetter(nav, 'appVersion', (profile.userAgent || '').replace(/^Mozilla\\//, ''));
-        overrideGetter(navProto, 'platform', profile.platform || 'Win32');
-        overrideGetter(nav, 'platform', profile.platform || 'Win32');
-        overrideGetter(navProto, 'hardwareConcurrency', profile.hardwareConcurrency || 4);
-        overrideGetter(nav, 'hardwareConcurrency', profile.hardwareConcurrency || 4);
-        overrideGetter(navProto, 'deviceMemory', profile.deviceMemory || 4);
-        overrideGetter(nav, 'deviceMemory', profile.deviceMemory || 4);
+        overrideGetter(navProto, 'userAgent', () => profile.userAgent);
+        overrideGetter(navProto, 'appVersion', () => (profile.userAgent || '').replace(/^Mozilla\\//, ''));
+        overrideGetter(navProto, 'platform', () => profile.platform || 'Win32');
+        overrideGetter(navProto, 'hardwareConcurrency', () => profile.hardwareConcurrency || 4);
+        overrideGetter(navProto, 'deviceMemory', () => profile.deviceMemory || 4);
+        overrideGetter(navProto, 'language', () => 'en-US');
+        overrideGetter(navProto, 'languages', () => Object.freeze(['en-US', 'en']));
+      }
+
+      function patchWorkerGL(proto) {
+        if (!proto || !proto.getParameter) return;
+        const origParam = proto.getParameter;
+        proto.getParameter = function(pname) {
+          const num = Number(pname);
+          if (num === 37445 || pname === 'UNMASKED_VENDOR_WEBGL') return profile.webglVendor || "Google Inc. (Intel)";
+          if (num === 37446 || pname === 'UNMASKED_RENDERER_WEBGL') return profile.webglRenderer || "ANGLE (Intel, Intel(R) HD Graphics 620 Direct3D11 vs_5_0 ps_5_0, D3D11-27.20.100.8681)";
+          return origParam.apply(this, arguments);
+        };
+      }
+
+      if (self.WebGLRenderingContext) patchWorkerGL(self.WebGLRenderingContext.prototype);
+      if (self.WebGL2RenderingContext) patchWorkerGL(self.WebGL2RenderingContext.prototype);
+      if (self.OffscreenCanvas) {
+        const origGetCtx = self.OffscreenCanvas.prototype.getContext;
+        self.OffscreenCanvas.prototype.getContext = function(type) {
+          const ctx = origGetCtx.apply(this, arguments);
+          if (ctx && (type === 'webgl' || type === 'webgl2')) patchWorkerGL(Object.getPrototypeOf(ctx));
+          return ctx;
+        };
       }
     })();\n`;
   }
@@ -245,10 +282,11 @@
         }
         return res;
       };
+      registerStealthFn(Intl.DateTimeFormat.prototype.resolvedOptions, 'resolvedOptions');
     } catch (e) {}
   }
 
-  // Comprehensive Mac Signature Fonts List (Includes System & Regional Fonts)
+  // Comprehensive Mac Signature Fonts List
   const MAC_SIGNATURE_FONTS = [
     "san francisco", "blinkmacsystemfont", "helvetica neue", "geneva",
     "monaco", "menlo", "lucida grande", "apple color emoji", "apple sd gothic neo",
@@ -313,6 +351,7 @@
         recordProbe('fonts', `document.fonts.check("${font}")`);
         return origFontsCheck.apply(this, arguments);
       };
+      registerStealthFn(document.fonts.check, 'check');
     } catch(e) {}
   }
 
@@ -348,25 +387,27 @@
       targetWin.__SHIELD_HOOKED__ = true;
     } catch (e) { return; }
 
-    function overrideDynamicGetter(target, prop, getValueFn, category, detailLabel) {
+    // STEALTH PROTOTYPE-ONLY GETTER OVERRIDE (Never attaches own properties on navigator/screen)
+    function overridePrototypeGetter(protoTarget, prop, getValueFn, category, detailLabel) {
+      if (!protoTarget) return;
       try {
-        Object.defineProperty(target, prop, {
-          get: function () {
-            if (category) recordProbe(category, detailLabel || prop);
-            return getValueFn();
-          },
+        const getterFn = function () {
+          if (category) recordProbe(category, detailLabel || prop);
+          return getValueFn();
+        };
+        registerStealthFn(getterFn, `get ${prop}`);
+        Object.defineProperty(protoTarget, prop, {
+          get: getterFn,
           configurable: true,
           enumerable: true
         });
-      } catch (e) {
-        try {
-          target[prop] = getValueFn();
-        } catch (err) {}
-      }
+      } catch (e) {}
     }
 
     // Disk Storage Quota API Standardization
     const nav = targetWin.navigator;
+    const navProto = nav ? (Object.getPrototypeOf(nav) || targetWin.Navigator?.prototype) : null;
+
     if (nav && nav.storage && nav.storage.estimate) {
       const origEstimate = nav.storage.estimate;
       nav.storage.estimate = function () {
@@ -377,10 +418,12 @@
           usageDetails: {}
         });
       };
+      registerStealthFn(nav.storage.estimate, 'estimate');
     }
 
     // Media Device Enumeration Masking
     if (nav && nav.mediaDevices && nav.mediaDevices.enumerateDevices) {
+      const origEnumerate = nav.mediaDevices.enumerateDevices;
       nav.mediaDevices.enumerateDevices = function () {
         recordProbe('peripherals', 'navigator.mediaDevices.enumerateDevices() -> Masked Generic');
         return Promise.resolve([
@@ -389,6 +432,7 @@
           { deviceId: "default", kind: "videoinput", label: "", groupId: "default" }
         ]);
       };
+      registerStealthFn(nav.mediaDevices.enumerateDevices, 'enumerateDevices');
     }
 
     // SVGRect Sub-Pixel Geometry Noise
@@ -413,6 +457,7 @@
         }
         return box;
       };
+      registerStealthFn(targetWin.SVGGraphicsElement.prototype.getBBox, 'getBBox');
     }
 
     if (targetWin.SVGTextContentElement) {
@@ -423,6 +468,7 @@
           const len = origLength.apply(this, arguments);
           return typeof len === 'number' ? len + (Math.random() - 0.5) * 0.00001 : len;
         };
+        registerStealthFn(targetWin.SVGTextContentElement.prototype.getComputedTextLength, 'getComputedTextLength');
       }
       if (targetWin.SVGTextContentElement.prototype.getSubStringLength) {
         const origSubLength = targetWin.SVGTextContentElement.prototype.getSubStringLength;
@@ -431,6 +477,7 @@
           const len = origSubLength.apply(this, arguments);
           return typeof len === 'number' ? len + (Math.random() - 0.5) * 0.00001 : len;
         };
+        registerStealthFn(targetWin.SVGTextContentElement.prototype.getSubStringLength, 'getSubStringLength');
       }
     }
 
@@ -447,6 +494,7 @@
             return offer;
           });
         };
+        registerStealthFn(targetWin.RTCPeerConnection.prototype.createOffer, 'createOffer');
       }
 
       const origCreateAnswer = targetWin.RTCPeerConnection.prototype.createAnswer;
@@ -460,15 +508,14 @@
             return answer;
           });
         };
+        registerStealthFn(targetWin.RTCPeerConnection.prototype.createAnswer, 'createAnswer');
       }
     }
 
-    // Multi-Monitor & Screen Details API Masking
+    // Multi-Monitor & Screen Details API Masking (Prototype Only)
     if (targetWin.screen) {
-      const scr = targetWin.screen;
-      const scrProto = Object.getPrototypeOf(scr) || targetWin.Screen?.prototype || scr;
-      overrideDynamicGetter(scrProto, 'isExtended', () => false, 'screen', 'screen.isExtended');
-      overrideDynamicGetter(scr, 'isExtended', () => false, 'screen', 'screen.isExtended');
+      const scrProto = Object.getPrototypeOf(targetWin.screen) || targetWin.Screen?.prototype;
+      overridePrototypeGetter(scrProto, 'isExtended', () => false, 'screen', 'screen.isExtended');
     }
 
     if (targetWin.getScreenDetails) {
@@ -479,47 +526,43 @@
           screens: [{ isPrimary: true, isInternal: true, label: "Primary Display" }]
         });
       };
+      registerStealthFn(targetWin.getScreenDetails, 'getScreenDetails');
     }
 
     // Gamepad, Bluetooth, WebHID & WebUSB API Neutering
-    if (nav) {
-      const navProto = Object.getPrototypeOf(nav) || targetWin.Navigator?.prototype || nav;
-
-      if (nav.getGamepads || navProto.getGamepads) {
+    if (navProto) {
+      if (navProto.getGamepads) {
         const mockGetGamepads = function () {
           recordProbe('peripherals', 'navigator.getGamepads()');
           return [null, null, null, null];
         };
-        overrideDynamicGetter(navProto, 'getGamepads', () => mockGetGamepads, 'peripherals', 'navigator.getGamepads');
-        overrideDynamicGetter(nav, 'getGamepads', () => mockGetGamepads, 'peripherals', 'navigator.getGamepads');
+        registerStealthFn(mockGetGamepads, 'getGamepads');
+        overridePrototypeGetter(navProto, 'getGamepads', () => mockGetGamepads, 'peripherals', 'navigator.getGamepads');
       }
 
-      if (nav.bluetooth || navProto.bluetooth) {
+      if (navProto.bluetooth) {
         const mockBluetooth = {
           getAvailability: () => Promise.resolve(false),
           getDevices: () => Promise.resolve([]),
           requestDevice: () => Promise.reject(new DOMException("Bluetooth access disabled", "NotFoundError"))
         };
-        overrideDynamicGetter(navProto, 'bluetooth', () => mockBluetooth, 'peripherals', 'navigator.bluetooth');
-        overrideDynamicGetter(nav, 'bluetooth', () => mockBluetooth, 'peripherals', 'navigator.bluetooth');
+        overridePrototypeGetter(navProto, 'bluetooth', () => mockBluetooth, 'peripherals', 'navigator.bluetooth');
       }
 
-      if (nav.hid || navProto.hid) {
+      if (navProto.hid) {
         const mockHID = {
           getDevices: () => Promise.resolve([]),
           requestDevice: () => Promise.resolve([])
         };
-        overrideDynamicGetter(navProto, 'hid', () => mockHID, 'peripherals', 'navigator.hid');
-        overrideDynamicGetter(nav, 'hid', () => mockHID, 'peripherals', 'navigator.hid');
+        overridePrototypeGetter(navProto, 'hid', () => mockHID, 'peripherals', 'navigator.hid');
       }
 
-      if (nav.usb || navProto.usb) {
+      if (navProto.usb) {
         const mockUSB = {
           getDevices: () => Promise.resolve([]),
           requestDevice: () => Promise.reject(new DOMException("USB device access disabled", "NotFoundError"))
         };
-        overrideDynamicGetter(navProto, 'usb', () => mockUSB, 'peripherals', 'navigator.usb');
-        overrideDynamicGetter(nav, 'usb', () => mockUSB, 'peripherals', 'navigator.usb');
+        overridePrototypeGetter(navProto, 'usb', () => mockUSB, 'peripherals', 'navigator.usb');
       }
     }
 
@@ -542,6 +585,7 @@
         }
         return rect;
       };
+      registerStealthFn(targetWin.Element.prototype.getBoundingClientRect, 'getBoundingClientRect');
     }
 
     if (targetWin.Range && targetWin.Range.prototype.getClientRects) {
@@ -560,6 +604,7 @@
         }
         return list;
       };
+      registerStealthFn(targetWin.Range.prototype.getClientRects, 'getClientRects');
     }
 
     // Worker Constructor & URL.createObjectURL Interception
@@ -576,6 +621,7 @@
         }
         return origCreateObjectURL.apply(this, arguments);
       };
+      registerStealthFn(targetWin.URL.createObjectURL, 'createObjectURL');
     }
 
     if (targetWin.Worker) {
@@ -592,6 +638,7 @@
         return new OrigWorker(scriptURL, options);
       };
       targetWin.Worker.prototype = OrigWorker.prototype;
+      registerStealthFn(targetWin.Worker, 'Worker');
     }
 
     if (targetWin.SharedWorker) {
@@ -608,6 +655,7 @@
         return new OrigSharedWorker(scriptURL, options);
       };
       targetWin.SharedWorker.prototype = OrigSharedWorker.prototype;
+      registerStealthFn(targetWin.SharedWorker, 'SharedWorker');
     }
 
     // ServiceWorker Registration Interception
@@ -629,6 +677,7 @@
         }
         return origRegister.apply(this, arguments);
       };
+      registerStealthFn(targetWin.ServiceWorkerContainer.prototype.register, 'register');
     }
 
     // SpeechSynthesis Voice Spoofing
@@ -643,6 +692,7 @@
         recordProbe('speech', 'speechSynthesis.getVoices()');
         return mockVoices;
       };
+      registerStealthFn(mockGetVoices, 'getVoices');
 
       try {
         if (targetWin.speechSynthesis) targetWin.speechSynthesis.getVoices = mockGetVoices;
@@ -652,11 +702,10 @@
       } catch (e) {}
     }
 
-    if (!nav) return;
-    const navProto = Object.getPrototypeOf(nav) || targetWin.Navigator?.prototype || nav;
+    if (!navProto) return;
 
-    // 4. sendBeacon & Ping Protection
-    if (nav.sendBeacon) {
+    // sendBeacon & Ping Protection
+    if (nav && nav.sendBeacon) {
       const origSendBeacon = nav.sendBeacon;
       nav.sendBeacon = function (url, data) {
         let inspectObj = null;
@@ -686,6 +735,7 @@
         recordProbe('beacons', `sendBeacon("${url}") -> ALLOWED (Same-Origin)`, inspectObj);
         return origSendBeacon.apply(this, arguments);
       };
+      registerStealthFn(nav.sendBeacon, 'sendBeacon');
     }
 
     if (targetWin.HTMLAnchorElement) {
@@ -699,40 +749,24 @@
       } catch (e) {}
     }
 
-    // Standard Navigator properties
-    overrideDynamicGetter(navProto, 'userAgent', () => activeProfile.userAgent, 'userAgent', 'navigator.userAgent');
-    overrideDynamicGetter(nav, 'userAgent', () => activeProfile.userAgent, 'userAgent', 'navigator.userAgent');
+    // Standard Navigator properties (PROTOTYPE ONLY - NO OWN PROPERTIES ON NAVIGATOR)
+    overridePrototypeGetter(navProto, 'userAgent', () => activeProfile.userAgent, 'userAgent', 'navigator.userAgent');
+    overridePrototypeGetter(navProto, 'appVersion', () => (activeProfile.userAgent || '').replace(/^Mozilla\//, ''), 'userAgent', 'navigator.appVersion');
+    overridePrototypeGetter(navProto, 'platform', () => activeProfile.platform || 'Win32', 'userAgent', 'navigator.platform');
+    overridePrototypeGetter(navProto, 'vendor', () => activeProfile.vendor || 'Google Inc.', 'userAgent', 'navigator.vendor');
+    overridePrototypeGetter(navProto, 'oscpu', () => activeProfile.oscpu || 'Windows NT 10.0; Win64; x64', 'userAgent', 'navigator.oscpu');
 
-    overrideDynamicGetter(navProto, 'appVersion', () => (activeProfile.userAgent || '').replace(/^Mozilla\//, ''), 'userAgent', 'navigator.appVersion');
-    overrideDynamicGetter(nav, 'appVersion', () => (activeProfile.userAgent || '').replace(/^Mozilla\//, ''), 'userAgent', 'navigator.appVersion');
+    // Languages (PROTOTYPE ONLY)
+    overridePrototypeGetter(navProto, 'language', () => 'en-US');
+    overridePrototypeGetter(navProto, 'languages', () => Object.freeze(['en-US', 'en']));
 
-    overrideDynamicGetter(navProto, 'platform', () => activeProfile.platform || 'Win32', 'userAgent', 'navigator.platform');
-    overrideDynamicGetter(nav, 'platform', () => activeProfile.platform || 'Win32', 'userAgent', 'navigator.platform');
+    // Hardware specs (PROTOTYPE ONLY)
+    overridePrototypeGetter(navProto, 'hardwareConcurrency', () => activeProfile.hardwareConcurrency || 4, 'hardware', 'hardwareConcurrency');
+    overridePrototypeGetter(navProto, 'deviceMemory', () => activeProfile.deviceMemory || 4, 'hardware', 'deviceMemory');
+    overridePrototypeGetter(navProto, 'maxTouchPoints', () => activeProfile.maxTouchPoints || 0, 'hardware', 'maxTouchPoints');
 
-    overrideDynamicGetter(navProto, 'vendor', () => activeProfile.vendor || 'Google Inc.', 'userAgent', 'navigator.vendor');
-    overrideDynamicGetter(nav, 'vendor', () => activeProfile.vendor || 'Google Inc.', 'userAgent', 'navigator.vendor');
-
-    overrideDynamicGetter(navProto, 'oscpu', () => activeProfile.oscpu || 'Windows NT 10.0; Win64; x64', 'userAgent', 'navigator.oscpu');
-    overrideDynamicGetter(nav, 'oscpu', () => activeProfile.oscpu || 'Windows NT 10.0; Win64; x64', 'userAgent', 'navigator.oscpu');
-
-    // Languages
-    overrideDynamicGetter(navProto, 'language', () => 'en-US');
-    overrideDynamicGetter(nav, 'language', () => 'en-US');
-    overrideDynamicGetter(navProto, 'languages', () => Object.freeze(['en-US', 'en']));
-    overrideDynamicGetter(nav, 'languages', () => Object.freeze(['en-US', 'en']));
-
-    // Hardware specs
-    overrideDynamicGetter(navProto, 'hardwareConcurrency', () => activeProfile.hardwareConcurrency || 4, 'hardware', 'hardwareConcurrency');
-    overrideDynamicGetter(nav, 'hardwareConcurrency', () => activeProfile.hardwareConcurrency || 4, 'hardware', 'hardwareConcurrency');
-
-    overrideDynamicGetter(navProto, 'deviceMemory', () => activeProfile.deviceMemory || 4, 'hardware', 'deviceMemory');
-    overrideDynamicGetter(nav, 'deviceMemory', () => activeProfile.deviceMemory || 4, 'hardware', 'deviceMemory');
-
-    overrideDynamicGetter(navProto, 'maxTouchPoints', () => activeProfile.maxTouchPoints || 0, 'hardware', 'maxTouchPoints');
-    overrideDynamicGetter(nav, 'maxTouchPoints', () => activeProfile.maxTouchPoints || 0, 'hardware', 'maxTouchPoints');
-
-    // Client Hints - navigator.userAgentData
-    if (nav.userAgentData || navProto.userAgentData) {
+    // Client Hints - navigator.userAgentData (PROTOTYPE ONLY)
+    if (navProto.userAgentData || (nav && nav.userAgentData)) {
       const mockUAData = {
         get brands() { return activeProfile.brands || [{ brand: "Not:A-Brand", version: "24" }, { brand: "Chromium", version: "150" }, { brand: "Microsoft Edge", version: "150" }]; },
         get mobile() { return false; },
@@ -767,13 +801,14 @@
           return { brands: activeProfile.brands, mobile: false, platform: activeProfile.platformName || "Windows" };
         }
       };
+      registerStealthFn(mockUAData.getHighEntropyValues, 'getHighEntropyValues');
+      registerStealthFn(mockUAData.toJSON, 'toJSON');
 
-      overrideDynamicGetter(navProto, 'userAgentData', () => mockUAData, 'userAgentData', 'navigator.userAgentData');
-      overrideDynamicGetter(nav, 'userAgentData', () => mockUAData, 'userAgentData', 'navigator.userAgentData');
+      overridePrototypeGetter(navProto, 'userAgentData', () => mockUAData, 'userAgentData', 'navigator.userAgentData');
     }
 
-    // WebGPU Protection
-    if (nav.gpu || navProto.gpu) {
+    // WebGPU Protection (PROTOTYPE ONLY)
+    if (navProto.gpu || (nav && nav.gpu)) {
       const mockGPU = {
         requestAdapter: function () {
           recordProbe('webgl', 'navigator.gpu.requestAdapter()');
@@ -794,13 +829,14 @@
         },
         getPreferredCanvasFormat: () => 'bgra8unorm'
       };
+      registerStealthFn(mockGPU.requestAdapter, 'requestAdapter');
+      registerStealthFn(mockGPU.getPreferredCanvasFormat, 'getPreferredCanvasFormat');
 
-      overrideDynamicGetter(navProto, 'gpu', () => mockGPU, 'webgl', 'navigator.gpu');
-      overrideDynamicGetter(nav, 'gpu', () => mockGPU, 'webgl', 'navigator.gpu');
+      overridePrototypeGetter(navProto, 'gpu', () => mockGPU, 'webgl', 'navigator.gpu');
     }
 
-    // Battery Status API Spoofing
-    if (nav.getBattery || navProto.getBattery) {
+    // Battery Status API Spoofing (PROTOTYPE ONLY)
+    if (navProto.getBattery || (nav && nav.getBattery)) {
       const mockBatteryManager = {
         charging: true,
         chargingTime: 0,
@@ -815,32 +851,32 @@
         recordProbe('battery', 'navigator.getBattery()');
         return Promise.resolve(mockBatteryManager);
       };
+      registerStealthFn(mockGetBattery, 'getBattery');
 
-      overrideDynamicGetter(navProto, 'getBattery', () => mockGetBattery, 'battery', 'navigator.getBattery');
-      overrideDynamicGetter(nav, 'getBattery', () => mockGetBattery, 'battery', 'navigator.getBattery');
+      overridePrototypeGetter(navProto, 'getBattery', () => mockGetBattery, 'battery', 'navigator.getBattery');
     }
 
-    // Safe Screen Geometry Overrides
+    // Safe Screen Geometry Overrides (PROTOTYPE ONLY)
     if (targetWin.screen) {
       const scr = targetWin.screen;
-      const scrProto = Object.getPrototypeOf(scr) || targetWin.Screen?.prototype || scr;
+      const scrProto = Object.getPrototypeOf(scr) || targetWin.Screen?.prototype;
       const nativeWidth = scr.width;
       const nativeHeight = scr.height;
-      const origWidthGet = Object.getOwnPropertyDescriptor(scrProto, 'width')?.get || Object.getOwnPropertyDescriptor(scr, 'width')?.get;
-      const origHeightGet = Object.getOwnPropertyDescriptor(scrProto, 'height')?.get || Object.getOwnPropertyDescriptor(scr, 'height')?.get;
+      const origWidthGet = Object.getOwnPropertyDescriptor(scrProto, 'width')?.get;
+      const origHeightGet = Object.getOwnPropertyDescriptor(scrProto, 'height')?.get;
 
-      overrideDynamicGetter(scrProto, 'width', () => {
+      overridePrototypeGetter(scrProto, 'width', () => {
         if (activeProfile.spoofScreen) return 1920;
         return origWidthGet ? origWidthGet.call(scr) : nativeWidth;
       }, 'screen', 'screen.width');
 
-      overrideDynamicGetter(scrProto, 'height', () => {
+      overridePrototypeGetter(scrProto, 'height', () => {
         if (activeProfile.spoofScreen) return 1080;
         return origHeightGet ? origHeightGet.call(scr) : nativeHeight;
       }, 'screen', 'screen.height');
     }
 
-    // WebGL Context Patching
+    // WebGL Context Prototype Patching (STRICT PROTOTYPE ONLY - NO INSTANCE OVERRIDES)
     function patchGLContext(contextProto) {
       if (!contextProto || !contextProto.getParameter) return;
 
@@ -868,6 +904,7 @@
         }
         return originalGetParameter.apply(this, arguments);
       };
+      registerStealthFn(contextProto.getParameter, 'getParameter');
 
       if (contextProto.getExtension) {
         const origGetExtension = contextProto.getExtension;
@@ -890,9 +927,11 @@
               }
               return src;
             };
+            registerStealthFn(ext.getTranslatedShaderSource, 'getTranslatedShaderSource');
           }
           return ext;
         };
+        registerStealthFn(contextProto.getExtension, 'getExtension');
       }
 
       if (contextProto.getSupportedExtensions) {
@@ -904,6 +943,7 @@
           }
           return origGetExt.apply(this, arguments);
         };
+        registerStealthFn(contextProto.getSupportedExtensions, 'getSupportedExtensions');
       }
 
       if (contextProto.getShaderPrecisionFormat) {
@@ -915,6 +955,7 @@
           }
           return origShaderPrec.apply(this, arguments);
         };
+        registerStealthFn(contextProto.getShaderPrecisionFormat, 'getShaderPrecisionFormat');
       }
 
       if (contextProto.readPixels) {
@@ -927,40 +968,12 @@
           }
           return res;
         };
+        registerStealthFn(contextProto.readPixels, 'readPixels');
       }
     }
 
     if (targetWin.WebGLRenderingContext) patchGLContext(targetWin.WebGLRenderingContext.prototype);
     if (targetWin.WebGL2RenderingContext) patchGLContext(targetWin.WebGL2RenderingContext.prototype);
-
-    function patchCanvasGetContext(canvasProto) {
-      if (!canvasProto || !canvasProto.getContext) return;
-      const origGetContext = canvasProto.getContext;
-      canvasProto.getContext = function (type, attributes) {
-        const ctx = origGetContext.apply(this, arguments);
-        if (ctx && (type === 'webgl' || type === 'webgl2' || type === 'experimental-webgl')) {
-          if (ctx.getParameter) {
-            const origParam = ctx.getParameter;
-            ctx.getParameter = function (pname) {
-              const numPname = Number(pname);
-              if (numPname === UNMASKED_VENDOR_WEBGL || pname === 'UNMASKED_VENDOR_WEBGL') {
-                recordProbe('webgl', 'Canvas.getContext(webgl) -> UNMASKED_VENDOR_WEBGL');
-                return activeProfile.webglVendor || "Google Inc. (Intel)";
-              }
-              if (numPname === UNMASKED_RENDERER_WEBGL || pname === 'UNMASKED_RENDERER_WEBGL') {
-                recordProbe('webgl', 'Canvas.getContext(webgl) -> UNMASKED_RENDERER_WEBGL');
-                return activeProfile.webglRenderer || "ANGLE (Intel, Intel(R) HD Graphics 620 Direct3D11 vs_5_0 ps_5_0, D3D11-27.20.100.8681)";
-              }
-              return origParam.apply(this, arguments);
-            };
-          }
-        }
-        return ctx;
-      };
-    }
-
-    if (targetWin.HTMLCanvasElement) patchCanvasGetContext(targetWin.HTMLCanvasElement.prototype);
-    if (targetWin.OffscreenCanvas) patchCanvasGetContext(targetWin.OffscreenCanvas.prototype);
 
     // Font Availability & OS Alignment Spoofing
     if (targetWin.CanvasRenderingContext2D && targetWin.CanvasRenderingContext2D.prototype.measureText) {
@@ -1013,6 +1026,7 @@
         }
         return metrics;
       };
+      registerStealthFn(targetWin.CanvasRenderingContext2D.prototype.measureText, 'measureText');
     }
 
     // Canvas 2D Noise
@@ -1030,9 +1044,10 @@
         } catch (e) {}
         return origToDataURL.apply(this, arguments);
       };
+      registerStealthFn(targetWin.HTMLCanvasElement.prototype.toDataURL, 'toDataURL');
 
       const origGetImageData = targetWin.CanvasRenderingContext2D.prototype.getImageData;
-      CanvasRenderingContext2D.prototype.getImageData = function (x, y, w, h) {
+      targetWin.CanvasRenderingContext2D.prototype.getImageData = function (x, y, w, h) {
         recordProbe('canvas', 'getImageData() 1-bit pixel noise');
         const res = origGetImageData.apply(this, arguments);
         if (res && res.data && res.data.length > 3) {
@@ -1040,6 +1055,7 @@
         }
         return res;
       };
+      registerStealthFn(targetWin.CanvasRenderingContext2D.prototype.getImageData, 'getImageData');
     }
 
     // AudioContext Micro-Noise
@@ -1053,6 +1069,7 @@
         }
         return data;
       };
+      registerStealthFn(targetWin.AudioBuffer.prototype.getChannelData, 'getChannelData');
     }
 
     if (targetWin.AnalyserNode) {
@@ -1065,6 +1082,7 @@
             array[0] += (Math.random() - 0.5) * 0.00001;
           }
         };
+        registerStealthFn(targetWin.AnalyserNode.prototype.getFloatFrequencyData, 'getFloatFrequencyData');
       }
       const origGetByteFreq = targetWin.AnalyserNode.prototype.getByteFrequencyData;
       if (origGetByteFreq) {
@@ -1075,6 +1093,7 @@
             array[0] = (array[0] ^ 1) & 0xFF;
           }
         };
+        registerStealthFn(targetWin.AnalyserNode.prototype.getByteFrequencyData, 'getByteFrequencyData');
       }
     }
 
@@ -1082,10 +1101,9 @@
     if (activeProfile.maskBrave) {
       try {
         delete nav.brave;
-        delete navProto.brave;
+        if (navProto) delete navProto.brave;
       } catch (e) {
-        overrideDynamicGetter(navProto, 'brave', () => undefined, 'brave', 'navigator.brave');
-        overrideDynamicGetter(nav, 'brave', () => undefined, 'brave', 'navigator.brave');
+        overridePrototypeGetter(navProto, 'brave', () => undefined, 'brave', 'navigator.brave');
       }
     }
   }
@@ -1110,6 +1128,7 @@
             configurable: true,
             enumerable: true
           });
+          registerStealthFn(desc.get, 'get contentWindow');
         }
       }
     } catch (e) {}
@@ -1125,6 +1144,7 @@
         }
         return el;
       };
+      registerStealthFn(document.createElement, 'createElement');
     } catch (e) {}
   }
 
