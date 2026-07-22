@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  console.log('%c[Fingerprint Shield v2.6.0]%c Synchronous Iframe & Cross-Realm Stealth Suite initialized', 'color: #38bdf8; font-weight: bold;', 'color: #9ca3af;');
+  console.log('%c[Fingerprint Shield v2.7.0]%c Hardened Anti-Detection & Realm Isolation Suite initialized', 'color: #38bdf8; font-weight: bold;', 'color: #9ca3af;');
 
   let probeCounts = {
     userAgent: 0,
@@ -107,38 +107,39 @@
 
   // Cross-Realm Native Function toString Preservation Registry
   const stealthFnMap = new WeakMap();
-  const origToString = Function.prototype.toString;
-
-  function customToString() {
-    if (this === customToString || this === origToString) {
-      return 'function toString() { [native code] }';
-    }
-    if (stealthFnMap.has(this)) {
-      return stealthFnMap.get(this);
-    }
-    return origToString.apply(this, arguments);
-  }
-
-  try {
-    Object.defineProperty(customToString, 'name', { value: 'toString', configurable: true });
-    Object.defineProperty(customToString, 'length', { value: 0, configurable: true });
-  } catch(e) {}
-
-  stealthFnMap.set(customToString, 'function toString() { [native code] }');
-  stealthFnMap.set(origToString, 'function toString() { [native code] }');
 
   function applyStealthToStringToWindow(win) {
     if (!win || !win.Function || !win.Function.prototype) return;
     try {
-      if (win.Function.prototype.toString === customToString) return;
+      const origWinToString = win.Function.prototype.toString;
+      if (origWinToString.__STEALTH_APPLIED__) return;
+
+      function realmCustomToString() {
+        if (this === realmCustomToString || this === origWinToString) {
+          return 'function toString() { [native code] }';
+        }
+        if (stealthFnMap.has(this)) {
+          return stealthFnMap.get(this);
+        }
+        return origWinToString.apply(this, arguments);
+      }
+      realmCustomToString.__STEALTH_APPLIED__ = true;
+
+      try {
+        Object.defineProperty(realmCustomToString, 'name', { value: 'toString', configurable: true });
+        Object.defineProperty(realmCustomToString, 'length', { value: 0, configurable: true });
+      } catch(e) {}
+
+      stealthFnMap.set(realmCustomToString, 'function toString() { [native code] }');
+      stealthFnMap.set(origWinToString, 'function toString() { [native code] }');
+
       Object.defineProperty(win.Function.prototype, 'toString', {
-        value: customToString,
+        value: realmCustomToString,
         writable: true,
         enumerable: false,
         configurable: true
       });
     } catch(e) {
-      try { win.Function.prototype.toString = customToString; } catch(err) {}
     }
   }
 
@@ -416,11 +417,14 @@
 
     applyStealthToStringToWindow(targetWin);
 
-    // STRICT PROTOTYPE-ONLY GETTER OVERRIDE (Zero own properties on navigator)
+    // STRICT PROTOTYPE-ONLY GETTER OVERRIDE WITH 'this' VALIDATION
     function overridePrototypeGetter(protoTarget, prop, getValueFn, category, detailLabel) {
       if (!protoTarget) return;
       try {
         const getterFn = function () {
+          if (this === protoTarget) {
+            throw new TypeError('Illegal invocation');
+          }
           if (category) recordProbe(category, detailLabel || prop);
           return getValueFn();
         };
