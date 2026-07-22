@@ -22,7 +22,7 @@
         </div>
         <div>
           <h1>Fingerprint Shield</h1>
-          <span class="version-tag">Brave & Chromium</span>
+          <span class="version-tag">Brave &amp; Chromium</span>
         </div>
       </div>
       <div class="toggle-container">
@@ -122,10 +122,21 @@
             <div class="toggle-row">
               <div class="toggle-label">
                 <span class="toggle-title">Block Micro Tracking Beacons</span>
-                <span class="toggle-desc">Blocks &le;4px images (1x1 pixels) &amp; &le;30px tracking iframes</span>
+                <span class="toggle-desc">Blocks 3rd-party telemetry beacons &amp; ping attributes</span>
               </div>
               <label class="switch switch-sm">
                 <input type="checkbox" id="configBlockBeacons" checked>
+                <span class="slider round"></span>
+              </label>
+            </div>
+
+            <div class="toggle-row">
+              <div class="toggle-label">
+                <span class="toggle-title">Block Same-Origin Telemetry Beacons</span>
+                <span class="toggle-desc">Blocks 1st-party endpoints like <code>/svc/shreddit/perfMetrics</code></span>
+              </div>
+              <label class="switch switch-sm">
+                <input type="checkbox" id="configBlockSameOriginBeacons" checked>
                 <span class="slider round"></span>
               </label>
             </div>
@@ -203,80 +214,111 @@
 
           <div class="form-row">
             <div class="form-group col-6">
-              <label for="editPlatform">JS navigator.platform</label>
+              <label for="editPlatform">navigator.platform</label>
               <input type="text" id="editPlatform" required value="Win32">
             </div>
             <div class="form-group col-6">
-              <label for="editPlatformName">Sec-Ch-Ua-Platform</label>
+              <label for="editPlatformName">Sec-CH-UA-Platform</label>
               <input type="text" id="editPlatformName" required value="Windows">
             </div>
           </div>
 
           <div class="form-row">
             <div class="form-group col-6">
-              <label for="editPlatformVersion">Sec-Ch-Ua-Platform-Version</label>
-              <input type="text" id="editPlatformVersion" required value="10.0.0">
+              <label for="editPlatformVersion">Platform Version</label>
+              <input type="text" id="editPlatformVersion" value="10.0.0">
             </div>
             <div class="form-group col-6">
               <label for="editVendor">navigator.vendor</label>
-              <input type="text" id="editVendor" required value="Google Inc.">
+              <input type="text" id="editVendor" value="Google Inc.">
             </div>
           </div>
 
           <div class="form-row">
             <div class="form-group col-6">
-              <label for="editCores">CPU Cores (concurrency)</label>
-              <input type="number" id="editCores" min="1" max="64" value="4">
+              <label for="editCores">CPU Cores</label>
+              <input type="number" id="editCores" min="1" max="128" value="4">
             </div>
             <div class="form-group col-6">
-              <label for="editMemory">RAM Memory (GB)</label>
+              <label for="editMemory">RAM (GB)</label>
               <input type="number" id="editMemory" min="1" max="128" value="4">
             </div>
           </div>
 
           <div class="form-group">
-            <label for="editWebglVendor">WebGL Vendor (UNMASKED)</label>
+            <label for="editWebglVendor">WebGL Unmasked Vendor</label>
             <input type="text" id="editWebglVendor" value="Google Inc. (Intel)">
           </div>
 
           <div class="form-group">
-            <label for="editWebglRenderer">WebGL Renderer (UNMASKED)</label>
+            <label for="editWebglRenderer">WebGL Unmasked Renderer</label>
             <input type="text" id="editWebglRenderer" value="ANGLE (Intel, Intel(R) HD Graphics 620 Direct3D11 vs_5_0 ps_5_0, D3D11-27.20.100.8681)">
           </div>
 
-          <div class="form-checkbox">
-            <input type="checkbox" id="editSpoofWebglAdvanced" checked>
-            <label for="editSpoofWebglAdvanced">Advanced WebGL Shield (Extensions List, Shader Precision, readPixels Noise)</label>
-          </div>
+          <div class="toggle-group">
+            <div class="toggle-row">
+              <div class="toggle-label">
+                <span class="toggle-title">Advanced WebGL Shield</span>
+                <span class="toggle-desc">Spoof D3D Extensions, Shader Precision &amp; 3D Noise</span>
+              </div>
+              <label class="switch switch-sm">
+                <input type="checkbox" id="editSpoofWebglAdvanced" checked>
+                <span class="slider round"></span>
+              </label>
+            </div>
 
-          <div class="form-checkbox">
-            <input type="checkbox" id="editMaskBrave" checked>
-            <label for="editMaskBrave">Mask Brave Browser API (navigator.brave)</label>
-          </div>
+            <div class="toggle-row">
+              <div class="toggle-label">
+                <span class="toggle-title">Block Micro Tracking Beacons</span>
+                <span class="toggle-desc">Blocks 3rd-party telemetry beacons</span>
+              </div>
+              <label class="switch switch-sm">
+                <input type="checkbox" id="editBlockBeacons" checked>
+                <span class="slider round"></span>
+              </label>
+            </div>
 
-          <div class="form-checkbox">
-            <input type="checkbox" id="editBlockBeacons" checked>
-            <label for="editBlockBeacons">Block Micro Tracking Pixels (&le;4px) &amp; iFrames (&le;30px)</label>
-          </div>
+            <div class="toggle-row">
+              <div class="toggle-label">
+                <span class="toggle-title">Block Same-Origin Telemetry Beacons</span>
+                <span class="toggle-desc">Blocks 1st-party endpoints like <code>/svc/shreddit/perfMetrics</code></span>
+              </div>
+              <label class="switch switch-sm">
+                <input type="checkbox" id="editBlockSameOriginBeacons" checked>
+                <span class="slider round"></span>
+              </label>
+            </div>
 
-          <div class="form-checkbox">
-            <input type="checkbox" id="editSpoofScreen">
-            <label for="editSpoofScreen">Override Screen Geometry (1920x1080)</label>
+            <div class="toggle-row">
+              <div class="toggle-label">
+                <span class="toggle-title">Mask Brave Browser API</span>
+                <span class="toggle-desc">Hides <code>navigator.brave</code></span>
+              </div>
+              <label class="switch switch-sm">
+                <input type="checkbox" id="editMaskBrave" checked>
+                <span class="slider round"></span>
+              </label>
+            </div>
+
+            <div class="toggle-row">
+              <div class="toggle-label">
+                <span class="toggle-title">Override Screen Geometry</span>
+                <span class="toggle-desc">Force 1920x1080 screen width</span>
+              </div>
+              <label class="switch switch-sm">
+                <input type="checkbox" id="editSpoofScreen">
+                <span class="slider round"></span>
+              </label>
+            </div>
           </div>
 
           <div class="form-actions">
+            <button type="submit" class="btn btn-primary" id="btnSaveProfile">Save Profile</button>
             <button type="button" class="btn btn-secondary" id="btnCancelEdit">Cancel</button>
-            <button type="submit" class="btn btn-primary">Save Profile</button>
           </div>
         </form>
       </section>
     </main>
-
-    <!-- Footer -->
-    <footer class="app-footer">
-      <span>Zero-Tracking Privacy Shield</span>
-      <a href="#" id="btnResetDefaults" class="reset-link">Reset Defaults</a>
-    </footer>
   </div>
 
   <script src="../profiles.js"></script>

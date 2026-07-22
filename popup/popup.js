@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const autoModeSelect = document.getElementById('autoModeSelect');
   const configSpoofWebglAdvanced = document.getElementById('configSpoofWebglAdvanced');
   const configBlockBeacons = document.getElementById('configBlockBeacons');
+  const configBlockSameOriginBeacons = document.getElementById('configBlockSameOriginBeacons');
   const configSpoofScreen = document.getElementById('configSpoofScreen');
   const configMaskBrave = document.getElementById('configMaskBrave');
 
@@ -48,6 +49,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const editSpoofWebglAdvanced = document.getElementById('editSpoofWebglAdvanced');
   const editMaskBrave = document.getElementById('editMaskBrave');
   const editBlockBeacons = document.getElementById('editBlockBeacons');
+  const editBlockSameOriginBeacons = document.getElementById('editBlockSameOriginBeacons');
   const editSpoofScreen = document.getElementById('editSpoofScreen');
 
   function loadState() {
@@ -63,6 +65,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const activeP = state.profiles[state.activeProfile] || {};
       configSpoofWebglAdvanced.checked = activeP.spoofWebglAdvanced !== undefined ? activeP.spoofWebglAdvanced : true;
       configBlockBeacons.checked = activeP.blockBeacons !== undefined ? activeP.blockBeacons : true;
+      configBlockSameOriginBeacons.checked = activeP.blockSameOriginBeacons !== undefined ? activeP.blockSameOriginBeacons : true;
       configSpoofScreen.checked = activeP.spoofScreen !== undefined ? activeP.spoofScreen : false;
       configMaskBrave.checked = activeP.maskBrave !== undefined ? activeP.maskBrave : true;
 
@@ -190,6 +193,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  configBlockSameOriginBeacons.addEventListener('change', (e) => {
+    if (state.profiles[state.activeProfile]) {
+      state.profiles[state.activeProfile].blockSameOriginBeacons = e.target.checked;
+      saveState();
+    }
+  });
+
   configSpoofScreen.addEventListener('change', (e) => {
     if (state.profiles[state.activeProfile]) {
       state.profiles[state.activeProfile].spoofScreen = e.target.checked;
@@ -228,7 +238,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <span class="meta-tag">${escapeHtml(p.platform || 'Win32')}</span>
           <span class="meta-tag">${p.hardwareConcurrency || 4} CPU Cores</span>
           <span class="meta-tag">Advanced WebGL: ${p.spoofWebglAdvanced ? 'ON' : 'OFF'}</span>
-          <span class="meta-tag">Beacons Blocker: ${p.blockBeacons ? 'ON' : 'OFF'}</span>
+          <span class="meta-tag">1st-Party Beacons Block: ${p.blockSameOriginBeacons !== false ? 'ON' : 'OFF'}</span>
         </div>
         <div class="profile-actions">
           <button class="btn btn-secondary btn-sm btn-select" data-id="${id}">
@@ -306,6 +316,8 @@ document.addEventListener('DOMContentLoaded', () => {
       "Sub-Pixel DOMRect & SVGRect": "Active",
       "WebRTC LAN IP Scrubbing": "Active",
       "Peripheral Neutering": "Active",
+      "3rd-Party Beacons Block": p.blockBeacons ? "Active" : "Disabled",
+      "1st-Party Beacons Block": p.blockSameOriginBeacons !== false ? "Active" : "Disabled",
       "Brave Masking": p.maskBrave ? "Active" : "Disabled"
     }, null, 2);
   }
@@ -330,6 +342,7 @@ document.addEventListener('DOMContentLoaded', () => {
     editSpoofWebglAdvanced.checked = p.spoofWebglAdvanced !== undefined ? p.spoofWebglAdvanced : true;
     editMaskBrave.checked = p.maskBrave !== undefined ? p.maskBrave : true;
     editBlockBeacons.checked = p.blockBeacons !== undefined ? p.blockBeacons : true;
+    editBlockSameOriginBeacons.checked = p.blockSameOriginBeacons !== undefined ? p.blockSameOriginBeacons : true;
     editSpoofScreen.checked = p.spoofScreen !== undefined ? p.spoofScreen : false;
 
     switchTab('tab-editor');
@@ -348,6 +361,7 @@ document.addEventListener('DOMContentLoaded', () => {
     editSpoofWebglAdvanced.checked = true;
     editMaskBrave.checked = true;
     editBlockBeacons.checked = true;
+    editBlockSameOriginBeacons.checked = true;
     editSpoofScreen.checked = false;
 
     switchTab('tab-editor');
@@ -377,6 +391,7 @@ document.addEventListener('DOMContentLoaded', () => {
       spoofWebglAdvanced: editSpoofWebglAdvanced.checked,
       maskBrave: editMaskBrave.checked,
       blockBeacons: editBlockBeacons.checked,
+      blockSameOriginBeacons: editBlockSameOriginBeacons.checked,
       spoofScreen: editSpoofScreen.checked,
       custom: true
     };
