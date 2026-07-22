@@ -59,7 +59,7 @@ const DEFAULT_PROFILES = {
       { brand: "Microsoft Edge", version: "150.0.3200.12" }
     ],
     hardwareConcurrency: 8,
-    deviceMemory: 16,
+    deviceMemory: 8,
     maxTouchPoints: 0,
     webglVendor: "Google Inc. (NVIDIA)",
     webglRenderer: "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0, D3D11)",
@@ -97,7 +97,7 @@ const DEFAULT_PROFILES = {
     deviceMemory: 4,
     maxTouchPoints: 0,
     webglVendor: "Google Inc. (Intel)",
-    webglRenderer: "ANGLE (Intel, Intel(R) UHD Graphics 630 Direct3D11 vs_5_0 ps_5_0, D3D11)",
+    webglRenderer: "ANGLE (Intel, Intel(R) UHD Graphics 620 Direct3D11 vs_5_0 ps_5_0, D3D11)",
     maskBrave: false,
     spoofScreen: false,
     blockBeacons: true,

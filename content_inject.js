@@ -793,9 +793,9 @@
     overridePrototypeGetter(navProto, 'language', () => 'en-US');
     overridePrototypeGetter(navProto, 'languages', () => Object.freeze(['en-US', 'en']));
 
-    // Hardware specs (PROTOTYPE ONLY)
+    // Hardware specs (PROTOTYPE ONLY - CLAMPED TO W3C SPEC MAX 8)
     overridePrototypeGetter(navProto, 'hardwareConcurrency', () => activeProfile.hardwareConcurrency || 4, 'hardware', 'hardwareConcurrency');
-    overridePrototypeGetter(navProto, 'deviceMemory', () => activeProfile.deviceMemory || 4, 'hardware', 'deviceMemory');
+    overridePrototypeGetter(navProto, 'deviceMemory', () => Math.min(8, activeProfile.deviceMemory || 4), 'hardware', 'deviceMemory');
     overridePrototypeGetter(navProto, 'maxTouchPoints', () => activeProfile.maxTouchPoints || 0, 'hardware', 'maxTouchPoints');
 
     // Client Hints - navigator.userAgentData (PROTOTYPE ONLY)
@@ -1131,13 +1131,8 @@
     }
 
     // Brave Masking
-    if (activeProfile.maskBrave) {
-      try {
-        delete nav.brave;
-        if (navProto) delete navProto.brave;
-      } catch (e) {
-        overridePrototypeGetter(navProto, 'brave', () => undefined, 'brave', 'navigator.brave');
-      }
+    if (activeProfile.maskBrave && navProto) {
+      overridePrototypeGetter(navProto, 'brave', () => undefined, 'brave', 'navigator.brave');
     }
   }
 
