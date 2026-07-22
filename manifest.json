@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Header & Fingerprint Shield",
-  "version": "2.7.1",
+  "version": "2.10.0",
   "description": "Privacy-focused User-Agent, Client Hints, JS/WebGL OS fingerprint, Timezone, Web Worker, ServiceWorker, SVGRect, Storage Quota, Hardened Anti-Detection (Prototype Invocation Constraint Validation & Realm Isolation), Safe In-Operator Prototype Inspection, W3C DeviceMemory Clamping (Max 8), Beacon Suite, WebRTC LAN Scrub, Multi-Monitor & Peripheral Shield for Brave & Chromium.",
   "permissions": [
     "declarativeNetRequest",
@@ -15,24 +15,6 @@
   "background": {
     "service_worker": "background.js"
   },
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["content_isolated.js"],
-      "run_at": "document_start",
-      "world": "ISOLATED",
-      "all_frames": true,
-      "match_about_blank": true
-    },
-    {
-      "matches": ["<all_urls>"],
-      "js": ["content_inject.js"],
-      "run_at": "document_start",
-      "world": "MAIN",
-      "all_frames": true,
-      "match_about_blank": true
-    }
-  ],
   "action": {
     "default_popup": "popup/popup.html",
     "default_icon": {

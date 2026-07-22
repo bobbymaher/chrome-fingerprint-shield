@@ -25,7 +25,7 @@
           <span class="version-tag">Brave &amp; Chromium</span>
         </div>
       </div>
-      <div class="toggle-container">
+      <div class="toggle-container" title="Master switch - turns the shield off for every site, not just the current one. To exclude just one site, use Config → Excluded Sites instead.">
         <label class="switch">
           <input type="checkbox" id="enableToggle" checked>
           <span class="slider round"></span>
@@ -102,6 +102,18 @@
               </select>
               <span class="config-help">Sticky site keeps your login sessions intact, while 3rd-party CDNs &amp; trackers receive randomized identities.</span>
             </div>
+
+            <div class="form-group">
+              <label for="primaryRotationSelect">Primary Domain Rotation</label>
+              <select id="primaryRotationSelect" class="select-input">
+                <option value="off">Off — Sticky per domain (Default, safest for logins)</option>
+                <option value="daily">Rotate Daily</option>
+                <option value="hourly">Rotate Hourly</option>
+                <option value="minute">Rotate Every Minute</option>
+                <option value="second">Insane Mode — Rotate Every Second</option>
+              </select>
+              <span class="config-help">Only applies under Per-Site strategies above. Rotates the identity a site itself sees, not just 3rd parties. <i>Faster than daily WILL break logged-in sessions, live WebSockets, and trigger login/CAPTCHA challenges on sites that check for a consistent fingerprint.</i></span>
+            </div>
           </div>
         </div>
 
@@ -161,6 +173,43 @@
                 <input type="checkbox" id="configMaskBrave" checked>
                 <span class="slider round"></span>
               </label>
+            </div>
+
+            <div class="toggle-row">
+              <div class="toggle-label">
+                <span class="toggle-title">Shield Web Workers</span>
+                <span class="toggle-desc">Applies the fingerprint shield inside Worker/SharedWorker threads. <i>Can break sites whose worker code loads further resources by relative path — disable if a site's workers fail to load.</i></span>
+              </div>
+              <label class="switch switch-sm">
+                <input type="checkbox" id="configShieldWorkers" checked>
+                <span class="slider round"></span>
+              </label>
+            </div>
+
+            <div class="toggle-row">
+              <div class="toggle-label">
+                <span class="toggle-title">Verbose Console Logging</span>
+                <span class="toggle-desc">Logs every intercepted fingerprint probe to the page console. Disable for a quiet console.</span>
+              </div>
+              <label class="switch switch-sm">
+                <input type="checkbox" id="configVerboseLogging" checked>
+                <span class="slider round"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="config-group">
+          <h3>Excluded Sites</h3>
+          <div class="config-card">
+            <span class="config-help">The shield never runs on these sites (script injection itself is skipped, not just disabled) - use this for sites that break under spoofing, like your bank or a site that needs your real identity.</span>
+            <button class="btn btn-secondary btn-sm" id="btnExcludeCurrentSite" style="margin-top: 8px;">Exclude Current Site</button>
+            <div class="excluded-sites-list" id="excludedSitesList" style="margin-top: 10px;">
+              <!-- Dynamically populated excluded domains -->
+            </div>
+            <div class="form-row" style="margin-top: 10px;">
+              <input type="text" id="excludeDomainInput" placeholder="example.com" style="flex: 1;">
+              <button class="btn btn-secondary btn-sm" id="btnAddExcludedDomain">Add</button>
             </div>
           </div>
         </div>

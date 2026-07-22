@@ -565,6 +565,38 @@ input:checked + .slider:before {
   gap: 8px;
 }
 
+.excluded-sites-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.excluded-site-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--text-main);
+}
+
+.excluded-site-row .btn-remove-excluded {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.excluded-site-row .btn-remove-excluded:hover {
+  color: var(--danger, #ef4444);
+}
+
 .col-6 {
   flex: 1;
 }

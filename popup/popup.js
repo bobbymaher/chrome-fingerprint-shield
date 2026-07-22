@@ -1,19 +1,38 @@
+function detectChromeVersion() {
+  try {
+    const match = navigator.userAgent.match(/Chrome\/(\d+)/);
+    if (match) return parseInt(match[1], 10);
+  } catch (e) {}
+  return 150;
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   let state = {
     profiles: {},
     activeProfile: 'cheap_win10_edge',
     isEnabled: true,
-    autoMode: 'PER_SITE_3RD_RANDOM'
+    autoMode: 'PER_SITE_3RD_RANDOM',
+    shieldWorkers: true,
+    verboseLogging: true,
+    excludedDomains: [],
+    primaryRotation: 'off'
   };
 
   // DOM Elements
   const enableToggle = document.getElementById('enableToggle');
   const autoModeSelect = document.getElementById('autoModeSelect');
+  const primaryRotationSelect = document.getElementById('primaryRotationSelect');
   const configSpoofWebglAdvanced = document.getElementById('configSpoofWebglAdvanced');
   const configBlockBeacons = document.getElementById('configBlockBeacons');
   const configBlockSameOriginBeacons = document.getElementById('configBlockSameOriginBeacons');
   const configSpoofScreen = document.getElementById('configSpoofScreen');
   const configMaskBrave = document.getElementById('configMaskBrave');
+  const configShieldWorkers = document.getElementById('configShieldWorkers');
+  const configVerboseLogging = document.getElementById('configVerboseLogging');
+  const excludedSitesList = document.getElementById('excludedSitesList');
+  const excludeDomainInput = document.getElementById('excludeDomainInput');
+  const btnAddExcludedDomain = document.getElementById('btnAddExcludedDomain');
+  const btnExcludeCurrentSite = document.getElementById('btnExcludeCurrentSite');
 
   const navBtns = document.querySelectorAll('.nav-btn');
   const tabContents = document.querySelectorAll('.tab-content');
@@ -52,14 +71,21 @@ document.addEventListener('DOMContentLoaded', () => {
   const editSpoofScreen = document.getElementById('editSpoofScreen');
 
   function loadState() {
-    chrome.storage.local.get(['profiles', 'activeProfile', 'isEnabled', 'autoMode'], (data) => {
-      state.profiles = data.profiles || globalThis.DEFAULT_PROFILES || {};
+    chrome.storage.local.get(['profiles', 'activeProfile', 'isEnabled', 'autoMode', 'shieldWorkers', 'verboseLogging', 'excludedDomains', 'primaryRotation'], (data) => {
+      state.profiles = data.profiles || (typeof buildAllProfiles === 'function' ? buildAllProfiles(detectChromeVersion()) : {});
       state.activeProfile = data.activeProfile || 'cheap_win10_edge';
       state.isEnabled = data.isEnabled !== undefined ? data.isEnabled : true;
       state.autoMode = data.autoMode || 'PER_SITE_3RD_RANDOM';
+      state.shieldWorkers = data.shieldWorkers !== undefined ? data.shieldWorkers : true;
+      state.verboseLogging = data.verboseLogging !== undefined ? data.verboseLogging : true;
+      state.excludedDomains = data.excludedDomains || [];
+      state.primaryRotation = data.primaryRotation || 'off';
 
       enableToggle.checked = state.isEnabled;
       autoModeSelect.value = state.autoMode;
+      primaryRotationSelect.value = state.primaryRotation;
+      configShieldWorkers.checked = state.shieldWorkers;
+      configVerboseLogging.checked = state.verboseLogging;
 
       const activeP = state.profiles[state.activeProfile] || {};
       configSpoofWebglAdvanced.checked = activeP.spoofWebglAdvanced !== undefined ? activeP.spoofWebglAdvanced : true;
@@ -70,9 +96,74 @@ document.addEventListener('DOMContentLoaded', () => {
 
       renderProfiles();
       renderPreview();
+      renderExcludedSites();
       fetchProbeStats();
     });
   }
+
+  function renderExcludedSites() {
+    excludedSitesList.innerHTML = '';
+    if (state.excludedDomains.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'config-help';
+      empty.textContent = 'No sites excluded.';
+      excludedSitesList.appendChild(empty);
+      return;
+    }
+    state.excludedDomains.forEach((domain) => {
+      const row = document.createElement('div');
+      row.className = 'excluded-site-row';
+      row.innerHTML = `<span>${escapeHtml(domain)}</span><button class="btn-remove-excluded" data-domain="${escapeHtml(domain)}" title="Remove">&times;</button>`;
+      row.querySelector('.btn-remove-excluded').addEventListener('click', () => {
+        removeExcludedDomain(domain);
+      });
+      excludedSitesList.appendChild(row);
+    });
+  }
+
+  function saveExcludedDomains() {
+    chrome.storage.local.set({ excludedDomains: state.excludedDomains }, () => {
+      chrome.runtime.sendMessage({ type: 'SYNC_EXCLUDED_SITES' }, () => {
+        renderExcludedSites();
+      });
+    });
+  }
+
+  function addExcludedDomain(rawDomain) {
+    const domain = (rawDomain || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+    if (!domain || state.excludedDomains.includes(domain)) return;
+    state.excludedDomains.push(domain);
+    saveExcludedDomains();
+  }
+
+  function removeExcludedDomain(domain) {
+    state.excludedDomains = state.excludedDomains.filter((d) => d !== domain);
+    saveExcludedDomains();
+  }
+
+  btnAddExcludedDomain.addEventListener('click', () => {
+    addExcludedDomain(excludeDomainInput.value);
+    excludeDomainInput.value = '';
+  });
+
+  excludeDomainInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addExcludedDomain(excludeDomainInput.value);
+      excludeDomainInput.value = '';
+    }
+  });
+
+  btnExcludeCurrentSite.addEventListener('click', () => {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs && tabs[0] && tabs[0].url) {
+        try {
+          const hostname = new URL(tabs[0].url).hostname;
+          if (hostname) addExcludedDomain(hostname);
+        } catch (e) {}
+      }
+    });
+  });
 
   function fetchProbeStats() {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -142,7 +233,10 @@ document.addEventListener('DOMContentLoaded', () => {
       profiles: state.profiles,
       activeProfile: state.activeProfile,
       isEnabled: state.isEnabled,
-      autoMode: state.autoMode
+      autoMode: state.autoMode,
+      shieldWorkers: state.shieldWorkers,
+      verboseLogging: state.verboseLogging,
+      primaryRotation: state.primaryRotation
     }, () => {
       chrome.runtime.sendMessage({ type: 'SYNC_STATE' }, () => {
         renderProfiles();
@@ -175,6 +269,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
   autoModeSelect.addEventListener('change', (e) => {
     state.autoMode = e.target.value;
+    saveState();
+  });
+
+  primaryRotationSelect.addEventListener('change', (e) => {
+    const value = e.target.value;
+    if ((value === 'minute' || value === 'second') && !confirm(
+      'Rotating faster than daily WILL break logged-in sessions on most sites - expect surprise logouts, dead WebSockets, and login/CAPTCHA challenges anywhere that checks for a consistent browser fingerprint.\n\nContinue anyway?'
+    )) {
+      primaryRotationSelect.value = state.primaryRotation;
+      return;
+    }
+    state.primaryRotation = value;
     saveState();
   });
 
@@ -211,6 +317,16 @@ document.addEventListener('DOMContentLoaded', () => {
       state.profiles[state.activeProfile].maskBrave = e.target.checked;
       saveState();
     }
+  });
+
+  configShieldWorkers.addEventListener('change', (e) => {
+    state.shieldWorkers = e.target.checked;
+    saveState();
+  });
+
+  configVerboseLogging.addEventListener('change', (e) => {
+    state.verboseLogging = e.target.checked;
+    saveState();
   });
 
   function renderProfiles() {
@@ -370,11 +486,48 @@ document.addEventListener('DOMContentLoaded', () => {
     switchTab('tab-profiles');
   });
 
+  // Catches self-contradictory profiles - vendor/renderer/platform pairings
+  // that never occur on real hardware and are a strong fingerprinting tell
+  // (e.g. Intel vendor with an NVIDIA renderer string, a D3D/ANGLE-Windows
+  // renderer paired with a macOS platform, or a "modern GPU" renderer with
+  // an implausibly small texture size). Warns, doesn't block - some
+  // combinations are legitimately unusual (external GPU on a laptop, etc).
+  function validateProfileConsistency(profile) {
+    const warnings = [];
+    const vendor = (profile.webglVendor || '').toLowerCase();
+    const renderer = (profile.webglRenderer || '').toLowerCase();
+    const platformName = (profile.platformName || '').toLowerCase();
+    const ua = (profile.userAgent || '').toLowerCase();
+
+    if (/intel/.test(vendor) && /nvidia|geforce|rtx|gtx|amd|radeon/.test(renderer)) {
+      warnings.push('WebGL vendor is Intel but the renderer string names an NVIDIA/AMD GPU.');
+    }
+    if (/(d3d|direct3d)/.test(renderer) && (/mac/.test(platformName) || /macintosh/.test(ua))) {
+      warnings.push('Renderer looks like a Windows ANGLE/D3D string, but the platform is macOS - real Macs never report D3D (Mac ANGLE uses the Metal or OpenGL backend).');
+    }
+    if (/(metal|apple)/.test(renderer) && !/mac/.test(platformName) && !/macintosh/.test(ua)) {
+      warnings.push('Renderer looks like a macOS ANGLE/Metal string, but the platform isn\'t macOS.');
+    }
+    if (/mesa|llvmpipe/.test(renderer) && !/linux/.test(platformName)) {
+      warnings.push('Renderer looks like Linux Mesa, but the platform isn\'t Linux.');
+    }
+    if (/win/.test(platformName) && !/windows/.test(ua)) {
+      warnings.push('Platform is Windows but the User-Agent string doesn\'t mention Windows.');
+    }
+    if (/mac/.test(platformName) && !/macintosh|mac os x/.test(ua)) {
+      warnings.push('Platform is macOS but the User-Agent string doesn\'t mention Macintosh/Mac OS X.');
+    }
+    if (/linux/.test(platformName) && !/linux/.test(ua)) {
+      warnings.push('Platform is Linux but the User-Agent string doesn\'t mention Linux.');
+    }
+    return warnings;
+  }
+
   profileForm.addEventListener('submit', (e) => {
     e.preventDefault();
     const id = editProfileId.value || `custom_${Date.now()}`;
 
-    state.profiles[id] = {
+    const newProfile = {
       id: id,
       name: editName.value,
       description: editDescription.value,
@@ -394,6 +547,18 @@ document.addEventListener('DOMContentLoaded', () => {
       spoofScreen: editSpoofScreen.checked,
       custom: true
     };
+
+    const warnings = validateProfileConsistency(newProfile);
+    if (warnings.length > 0) {
+      const proceed = confirm(
+        'This profile has internally inconsistent fields, which is itself a fingerprinting tell:\n\n' +
+        warnings.map(w => '• ' + w).join('\n') +
+        '\n\nSave anyway?'
+      );
+      if (!proceed) return;
+    }
+
+    state.profiles[id] = newProfile;
 
     saveState(() => {
       switchTab('tab-profiles');

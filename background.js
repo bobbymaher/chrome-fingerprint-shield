@@ -1,5 +1,57 @@
 importScripts('profiles.js');
 
+// content_isolated.js/content_inject.js are registered dynamically (not via
+// manifest.json content_scripts) so per-site exclusion can be a true hard
+// exclude - the scripts never inject at all on an excluded site, rather
+// than injecting and then trying to detect/undo themselves. content_inject
+// runs in the MAIN world at document_start and can't reach chrome.storage
+// itself (that's the whole reason content_isolated.js exists as a bridge),
+// so a soft "ask it nicely not to patch" approach can't work reliably here.
+const CONTENT_SCRIPT_IDS = ['shield-isolated', 'shield-inject'];
+
+async function registerShieldScripts(excludedDomains) {
+  try {
+    const existing = await chrome.scripting.getRegisteredContentScripts({ ids: CONTENT_SCRIPT_IDS });
+    if (existing.length > 0) {
+      await chrome.scripting.unregisterContentScripts({ ids: CONTENT_SCRIPT_IDS });
+    }
+  } catch (e) {}
+
+  const excludeMatches = [];
+  (excludedDomains || []).forEach((host) => {
+    if (!host) return;
+    excludeMatches.push(`*://${host}/*`);
+    excludeMatches.push(`*://*.${host}/*`);
+  });
+
+  try {
+    await chrome.scripting.registerContentScripts([
+      {
+        id: 'shield-isolated',
+        matches: ['<all_urls>'],
+        excludeMatches: excludeMatches.length ? excludeMatches : undefined,
+        js: ['content_isolated.js'],
+        runAt: 'document_start',
+        world: 'ISOLATED',
+        allFrames: true,
+        matchOriginAsFallback: true
+      },
+      {
+        id: 'shield-inject',
+        matches: ['<all_urls>'],
+        excludeMatches: excludeMatches.length ? excludeMatches : undefined,
+        js: ['content_inject.js'],
+        runAt: 'document_start',
+        world: 'MAIN',
+        allFrames: true,
+        matchOriginAsFallback: true
+      }
+    ]);
+  } catch (e) {
+    console.error('[Fingerprint Shield] Failed to register content scripts:', e);
+  }
+}
+
 const RULE_ID_FIRST_PARTY = 1;
 const RULE_ID_THIRD_PARTY = 2;
 const RULE_ID_REFERER_TRIM = 3;
@@ -15,11 +67,50 @@ function formatFullVersionListHeader(fullVersions) {
   return fullVersions.map(b => `"${b.brand}";v="${b.version}"`).join(', ');
 }
 
+// Deterministic per-day pick, not Math.random(). The third-party header
+// rule is one global declarativeNetRequest rule (DNR can't vary a header
+// value per matched third-party domain dynamically, only by static URL
+// filter), so it can't be scoped per-site the way in-page JS noise can -
+// but it doesn't need to re-roll on every settings save either. Seeding
+// from the calendar day keeps the picked profile stable for a day, then
+// rotates, instead of changing identity every time state syncs.
+function hashString(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
+  }
+  return hash >>> 0;
+}
+
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// The service worker's own navigator.userAgent is real/unspoofed - our
+// header-rewrite rules only apply to page requests, not the extension's own
+// context - so this reads the actual Chromium major version currently
+// running, used to keep every emulated Chrome/Edge/Opera build current.
+function detectChromeVersion() {
+  try {
+    const match = navigator.userAgent.match(/Chrome\/(\d+)/);
+    if (match) return parseInt(match[1], 10);
+  } catch (e) {}
+  return 150;
+}
+
 function getRandomProfile(profiles) {
-  const keys = Object.keys(profiles || {});
-  if (keys.length === 0) return globalThis.DEFAULT_PROFILES['cheap_win10_edge'];
-  const randKey = keys[Math.floor(Math.random() * keys.length)];
-  return profiles[randKey];
+  const keys = Object.keys(profiles || {}).sort();
+  if (keys.length === 0) return buildAllProfiles(detectChromeVersion())['cheap_win10_edge'];
+  const now = new Date();
+  const dayStr = `${now.getUTCFullYear()}-${now.getUTCMonth()}-${now.getUTCDate()}`;
+  const pick = Math.floor(mulberry32(hashString(dayStr))() * keys.length);
+  return profiles[keys[pick]];
 }
 
 async function updateDynamicRules(profile, isEnabled, autoMode, profiles) {
@@ -173,11 +264,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.type === 'SYNC_STATE') {
     chrome.storage.local.get(['profiles', 'activeProfile', 'isEnabled', 'autoMode'], (data) => {
-      const profiles = data.profiles || globalThis.DEFAULT_PROFILES;
+      const profiles = data.profiles || buildAllProfiles(detectChromeVersion());
       const activeId = data.activeProfile || 'cheap_win10_edge';
       const profile = profiles[activeId];
       updateDynamicRules(profile, data.isEnabled, data.autoMode, profiles);
       sendResponse({ status: 'OK' });
+    });
+    return true;
+  }
+
+  if (message.type === 'SYNC_EXCLUDED_SITES') {
+    chrome.storage.local.get(['excludedDomains'], (data) => {
+      registerShieldScripts(data.excludedDomains || []).then(() => {
+        sendResponse({ status: 'OK' });
+      });
     });
     return true;
   }
@@ -210,21 +310,32 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 });
 
 // Initialization
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.storage.local.get(['profiles', 'activeProfile', 'isEnabled', 'autoMode'], (data) => {
-    if (!data.profiles) {
-      chrome.storage.local.set({
-        profiles: globalThis.DEFAULT_PROFILES,
-        activeProfile: 'cheap_win10_edge',
-        isEnabled: true,
-        autoMode: 'PER_SITE_3RD_RANDOM'
-      }, () => {
-        updateDynamicRules(globalThis.DEFAULT_PROFILES['cheap_win10_edge'], true, 'PER_SITE_3RD_RANDOM', globalThis.DEFAULT_PROFILES);
-      });
-    } else {
-      const activeId = data.activeProfile || 'cheap_win10_edge';
-      const profile = data.profiles[activeId];
-      updateDynamicRules(profile, data.isEnabled !== undefined ? data.isEnabled : true, data.autoMode || 'PER_SITE_3RD_RANDOM', data.profiles);
-    }
+// Built-in profiles (curated + smart-generated, anything with an id
+// buildAllProfiles() produces) are refreshed on every install/update AND
+// every browser startup, so both code changes (new/changed built-ins) and
+// real Chromium version drift (the browser auto-updated since the last
+// extension update) reach users who already have a populated storage from
+// before. Custom profiles the user authored are left untouched.
+function refreshBuiltInProfiles() {
+  chrome.storage.local.get(['profiles', 'activeProfile', 'isEnabled', 'autoMode', 'excludedDomains'], (data) => {
+    const builtIns = buildAllProfiles(detectChromeVersion());
+    const mergedProfiles = Object.assign({}, data.profiles || {}, builtIns);
+    const activeId = data.activeProfile || 'cheap_win10_edge';
+    const isEnabled = data.isEnabled !== undefined ? data.isEnabled : true;
+    const autoMode = data.autoMode || 'PER_SITE_3RD_RANDOM';
+
+    chrome.storage.local.set({
+      profiles: mergedProfiles,
+      activeProfile: activeId,
+      isEnabled: isEnabled,
+      autoMode: autoMode
+    }, () => {
+      updateDynamicRules(mergedProfiles[activeId] || mergedProfiles['cheap_win10_edge'], isEnabled, autoMode, mergedProfiles);
+    });
+
+    registerShieldScripts(data.excludedDomains || []);
   });
-});
+}
+
+chrome.runtime.onInstalled.addListener(refreshBuiltInProfiles);
+chrome.runtime.onStartup.addListener(refreshBuiltInProfiles);

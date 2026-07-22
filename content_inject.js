@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  console.log('%c[Fingerprint Shield v2.7.0]%c Hardened Anti-Detection & Realm Isolation Suite initialized', 'color: #38bdf8; font-weight: bold;', 'color: #9ca3af;');
+  console.log('%c[Fingerprint Shield v2.10.0]%c Hardened Anti-Detection & Realm Isolation Suite initialized', 'color: #38bdf8; font-weight: bold;', 'color: #9ca3af;');
 
   let probeCounts = {
     userAgent: 0,
@@ -61,7 +61,7 @@
         const detailStr = detailInfo ? ` → ${detailInfo}` : '';
         probeLogCounts[category] = (probeLogCounts[category] || 0) + 1;
 
-        if (probeLogCounts[category] <= 25 || probeLogCounts[category] % 25 === 0) {
+        if (activeProfile.verboseLogging !== false && (probeLogCounts[category] <= 25 || probeLogCounts[category] % 25 === 0)) {
           if (inspectableObj) {
             console.groupCollapsed(
               `%c[Shield Probe]%c %c${category.toUpperCase()}%c${detailStr} %c(Total: ${probeCounts[category]})`,
@@ -151,6 +151,30 @@
     }
   }
 
+  // Proxy-based native disguise: wrapping the REAL native function/getter as
+  // the Proxy target means Function.prototype.toString shows the target's
+  // own "[native code]" output automatically (per spec, toString unwraps
+  // through a Proxy to its target) - this holds even against a pristine
+  // toString reference grabbed from an untouched iframe, unlike the
+  // registerStealthFn/WeakMap trick which only fools callers going through
+  // OUR patched Function.prototype.toString. A Proxy also has zero own
+  // properties beyond what the target exposes, so it can't be caught by an
+  // "extra own props" scan the way a plain `function(){}` replacement can.
+  function wrapNativeMethod(protoTarget, methodName, implFn) {
+    if (!protoTarget) return null;
+    try {
+      const origMethod = protoTarget[methodName];
+      if (typeof origMethod !== 'function') return null;
+      const proxyMethod = new Proxy(origMethod, {
+        apply(target, thisArg, args) {
+          return implFn(target, thisArg, args);
+        }
+      });
+      protoTarget[methodName] = proxyMethod;
+      return origMethod;
+    } catch (e) { return null; }
+  }
+
   // 1. Clean URLs (DOM Parameter Stripper)
   if (typeof window !== 'undefined' && window.location && window.history && window.history.replaceState) {
     try {
@@ -189,17 +213,68 @@
     spoofWebglAdvanced: true,
     blockBeacons: true,
     blockSameOriginBeacons: true,
-    spoofScreen: false
+    spoofScreen: false,
+    shieldWorkers: true,
+    verboseLogging: true
   };
+
+  // Deterministic per-domain-per-day noise. Plain Math.random() noise
+  // changes on every call, which is both a fingerprinting tell (real
+  // hardware/APIs are deterministic within a session - browserleaks-style
+  // detectors literally compare two back-to-back reads and flag a mismatch
+  // as injected noise) and, worse, a crash risk: any code that measures
+  // repeatedly and waits for two reads to agree (layout/text-fit loops,
+  // audio comparison) never converges if the value moves every call. Seeding
+  // the RNG from (hostname, calendar day, channel, and an optional per-
+  // measurement key) makes noise a pure function of its inputs - identical
+  // calls in the same session return identical output - while still
+  // rotating daily so it isn't a stable long-term identifier across visits.
+  function hashString(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
+    }
+    return hash >>> 0;
+  }
+
+  // mulberry32 - small, fast, deterministic PRNG. Not cryptographic, doesn't
+  // need to be; only needs to be stable for a given seed.
+  function mulberry32(seed) {
+    let a = seed >>> 0;
+    return function () {
+      a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function seededRandom01(channel, extraKey) {
+    const now = new Date();
+    const dayStr = `${now.getUTCFullYear()}-${now.getUTCMonth()}-${now.getUTCDate()}`;
+    const hostname = (typeof window !== 'undefined' && window.location && window.location.hostname) || '';
+    const seedStr = `${hostname}|${dayStr}|${channel}|${extraKey || ''}`;
+    return mulberry32(hashString(seedStr))();
+  }
+
+  // Signed noise offset in [-magnitude/2, magnitude/2), deterministic for a
+  // given (channel, extraKey) on this domain today.
+  function seededNoise(channel, extraKey, magnitude) {
+    return (seededRandom01(channel, extraKey) - 0.5) * magnitude;
+  }
 
   // Google Privacy Sandbox Topics API Randomizer
   if (typeof document !== 'undefined') {
     try {
       document.browsingTopics = function () {
         recordProbe('topics', 'document.browsingTopics() query');
-        const t1 = 1 + Math.floor(Math.random() * 629);
-        const t2 = 1 + Math.floor(Math.random() * 629);
-        const t3 = 1 + Math.floor(Math.random() * 629);
+        // Real Topics API returns stable topics for the current epoch, not
+        // fresh random values on every call - matching that (deterministic
+        // per domain per day) is both more realistic and avoids a script
+        // catching an inconsistency by calling this twice and comparing.
+        const t1 = 1 + Math.floor(seededRandom01('topics', 't1') * 629);
+        const t2 = 1 + Math.floor(seededRandom01('topics', 't2') * 629);
+        const t3 = 1 + Math.floor(seededRandom01('topics', 't3') * 629);
         return Promise.resolve([
           { value: t1, taxonomyVersion: "1", modelVersion: "2", configVersion: "1" },
           { value: t2, taxonomyVersion: "1", modelVersion: "2", configVersion: "1" },
@@ -408,6 +483,129 @@
     "WEBGL_multi_draw"
   ];
 
+  // Extended getParameter pname table. Real values, not the placeholder
+  // 3390/3391 the old code used for ALIASED_LINE_WIDTH_RANGE/
+  // ALIASED_POINT_SIZE_RANGE - those never matched a real query since the
+  // actual WebGL enum values are 0x846E/0x846D (33902/33901), so that code
+  // was silently dead. Fingerprinting scripts (FingerprintJS-style) walk a
+  // few dozen of these pnames and hash the tuple, so leaving them at real
+  // hardware defaults while only masking VENDOR/RENDERER is itself a
+  // detectable mismatch - the values below are chosen per GPU tier so the
+  // whole tuple stays internally consistent with the claimed card.
+  const GL_PNAME = {
+    RED_BITS: 3410, GREEN_BITS: 3411, BLUE_BITS: 3412, ALPHA_BITS: 3413,
+    DEPTH_BITS: 3414, STENCIL_BITS: 3415, SUBPIXEL_BITS: 3408,
+    MAX_TEXTURE_SIZE: 3379, MAX_VIEWPORT_DIMS: 3386,
+    ALIASED_POINT_SIZE_RANGE: 33901, ALIASED_LINE_WIDTH_RANGE: 33902,
+    MAX_CUBE_MAP_TEXTURE_SIZE: 34076, MAX_RENDERBUFFER_SIZE: 34024,
+    MAX_VERTEX_ATTRIBS: 34921, MAX_VERTEX_UNIFORM_VECTORS: 36347,
+    MAX_VARYING_VECTORS: 36348, MAX_COMBINED_TEXTURE_IMAGE_UNITS: 35661,
+    MAX_VERTEX_TEXTURE_IMAGE_UNITS: 35660, MAX_TEXTURE_IMAGE_UNITS: 34930,
+    MAX_FRAGMENT_UNIFORM_VECTORS: 36349,
+    MAX_DRAW_BUFFERS_WEBGL: 34852, MAX_COLOR_ATTACHMENTS_WEBGL: 36063,
+    MAX_SAMPLES: 36183, MAX_3D_TEXTURE_SIZE: 32883, MAX_ARRAY_TEXTURE_LAYERS: 35071,
+    VENDOR: 7936, RENDERER: 7937, VERSION: 7938, SHADING_LANGUAGE_VERSION: 35724
+  };
+
+  // Three GPU capability tiers, matched by substring against the profile's
+  // webglRenderer. Desktop GPUs across vendors report near-identical shader
+  // precision (unlike mobile), so one shared precision table for all tiers
+  // is realistic, not a tell.
+  const GL_SHADER_PRECISION = {
+    float: { rangeMin: 127, rangeMax: 127, precision: 23 },
+    int: { rangeMin: 31, rangeMax: 30, precision: 0 }
+  };
+
+  const GL_CAPABILITY_TIERS = {
+    intel_igpu: {
+      match: /intel|iris|uhd|hd graphics/i,
+      caps: {
+        MAX_TEXTURE_SIZE: 16384, MAX_CUBE_MAP_TEXTURE_SIZE: 16384, MAX_RENDERBUFFER_SIZE: 16384,
+        MAX_VERTEX_ATTRIBS: 16, MAX_VERTEX_UNIFORM_VECTORS: 4096, MAX_VARYING_VECTORS: 31,
+        MAX_COMBINED_TEXTURE_IMAGE_UNITS: 32, MAX_VERTEX_TEXTURE_IMAGE_UNITS: 16,
+        MAX_TEXTURE_IMAGE_UNITS: 16, MAX_FRAGMENT_UNIFORM_VECTORS: 1024,
+        MAX_DRAW_BUFFERS_WEBGL: 8, MAX_COLOR_ATTACHMENTS_WEBGL: 8,
+        MAX_SAMPLES: 8, MAX_3D_TEXTURE_SIZE: 2048, MAX_ARRAY_TEXTURE_LAYERS: 2048,
+        DEPTH_BITS: 24, STENCIL_BITS: 8, SUBPIXEL_BITS: 4
+      }
+    },
+    nvidia_discrete: {
+      match: /nvidia|geforce|rtx|gtx/i,
+      caps: {
+        MAX_TEXTURE_SIZE: 32768, MAX_CUBE_MAP_TEXTURE_SIZE: 32768, MAX_RENDERBUFFER_SIZE: 32768,
+        MAX_VERTEX_ATTRIBS: 16, MAX_VERTEX_UNIFORM_VECTORS: 4096, MAX_VARYING_VECTORS: 31,
+        MAX_COMBINED_TEXTURE_IMAGE_UNITS: 192, MAX_VERTEX_TEXTURE_IMAGE_UNITS: 32,
+        MAX_TEXTURE_IMAGE_UNITS: 32, MAX_FRAGMENT_UNIFORM_VECTORS: 4096,
+        MAX_DRAW_BUFFERS_WEBGL: 8, MAX_COLOR_ATTACHMENTS_WEBGL: 8,
+        MAX_SAMPLES: 32, MAX_3D_TEXTURE_SIZE: 16384, MAX_ARRAY_TEXTURE_LAYERS: 2048,
+        DEPTH_BITS: 24, STENCIL_BITS: 8, SUBPIXEL_BITS: 4
+      }
+    },
+    apple_intel_igpu: {
+      match: /iris.*61|iris graphics/i,
+      caps: {
+        MAX_TEXTURE_SIZE: 16384, MAX_CUBE_MAP_TEXTURE_SIZE: 16384, MAX_RENDERBUFFER_SIZE: 16384,
+        MAX_VERTEX_ATTRIBS: 16, MAX_VERTEX_UNIFORM_VECTORS: 4096, MAX_VARYING_VECTORS: 31,
+        MAX_COMBINED_TEXTURE_IMAGE_UNITS: 48, MAX_VERTEX_TEXTURE_IMAGE_UNITS: 16,
+        MAX_TEXTURE_IMAGE_UNITS: 16, MAX_FRAGMENT_UNIFORM_VECTORS: 1024,
+        MAX_DRAW_BUFFERS_WEBGL: 8, MAX_COLOR_ATTACHMENTS_WEBGL: 8,
+        MAX_SAMPLES: 4, MAX_3D_TEXTURE_SIZE: 2048, MAX_ARRAY_TEXTURE_LAYERS: 2048,
+        DEPTH_BITS: 24, STENCIL_BITS: 8, SUBPIXEL_BITS: 4
+      }
+    },
+    mesa_generic: {
+      match: /mesa|llvmpipe/i,
+      caps: {
+        MAX_TEXTURE_SIZE: 16384, MAX_CUBE_MAP_TEXTURE_SIZE: 16384, MAX_RENDERBUFFER_SIZE: 16384,
+        MAX_VERTEX_ATTRIBS: 16, MAX_VERTEX_UNIFORM_VECTORS: 4096, MAX_VARYING_VECTORS: 31,
+        MAX_COMBINED_TEXTURE_IMAGE_UNITS: 32, MAX_VERTEX_TEXTURE_IMAGE_UNITS: 16,
+        MAX_TEXTURE_IMAGE_UNITS: 16, MAX_FRAGMENT_UNIFORM_VECTORS: 1024,
+        MAX_DRAW_BUFFERS_WEBGL: 8, MAX_COLOR_ATTACHMENTS_WEBGL: 8,
+        MAX_SAMPLES: 8, MAX_3D_TEXTURE_SIZE: 2048, MAX_ARRAY_TEXTURE_LAYERS: 2048,
+        DEPTH_BITS: 24, STENCIL_BITS: 8, SUBPIXEL_BITS: 4
+      }
+    },
+    amd_discrete: {
+      match: /amd|radeon/i,
+      caps: {
+        MAX_TEXTURE_SIZE: 16384, MAX_CUBE_MAP_TEXTURE_SIZE: 16384, MAX_RENDERBUFFER_SIZE: 16384,
+        MAX_VERTEX_ATTRIBS: 16, MAX_VERTEX_UNIFORM_VECTORS: 4096, MAX_VARYING_VECTORS: 31,
+        MAX_COMBINED_TEXTURE_IMAGE_UNITS: 160, MAX_VERTEX_TEXTURE_IMAGE_UNITS: 32,
+        MAX_TEXTURE_IMAGE_UNITS: 32, MAX_FRAGMENT_UNIFORM_VECTORS: 4096,
+        MAX_DRAW_BUFFERS_WEBGL: 8, MAX_COLOR_ATTACHMENTS_WEBGL: 8,
+        MAX_SAMPLES: 16, MAX_3D_TEXTURE_SIZE: 16384, MAX_ARRAY_TEXTURE_LAYERS: 2048,
+        DEPTH_BITS: 24, STENCIL_BITS: 8, SUBPIXEL_BITS: 4
+      }
+    },
+    apple_silicon: {
+      match: /apple m\d/i,
+      caps: {
+        MAX_TEXTURE_SIZE: 16384, MAX_CUBE_MAP_TEXTURE_SIZE: 16384, MAX_RENDERBUFFER_SIZE: 16384,
+        MAX_VERTEX_ATTRIBS: 31, MAX_VERTEX_UNIFORM_VECTORS: 4096, MAX_VARYING_VECTORS: 31,
+        MAX_COMBINED_TEXTURE_IMAGE_UNITS: 96, MAX_VERTEX_TEXTURE_IMAGE_UNITS: 32,
+        MAX_TEXTURE_IMAGE_UNITS: 32, MAX_FRAGMENT_UNIFORM_VECTORS: 4096,
+        MAX_DRAW_BUFFERS_WEBGL: 8, MAX_COLOR_ATTACHMENTS_WEBGL: 8,
+        MAX_SAMPLES: 4, MAX_3D_TEXTURE_SIZE: 2048, MAX_ARRAY_TEXTURE_LAYERS: 2048,
+        DEPTH_BITS: 24, STENCIL_BITS: 8, SUBPIXEL_BITS: 4
+      }
+    }
+  };
+
+  function getGLCapsForRenderer(rendererStr, vendorStr) {
+    const r = rendererStr || '';
+    const v = vendorStr || '';
+    // Vendor string is the strongest signal for Mesa (Linux) - a renderer
+    // string alone (e.g. "AMD Radeon RX 6600 (navi23, ...)") doesn't always
+    // literally contain "mesa", but the vendor field does on Linux.
+    if (/mesa/i.test(v) || /mesa|llvmpipe/i.test(r)) return GL_CAPABILITY_TIERS.mesa_generic.caps;
+    if (/apple m\d/i.test(r)) return GL_CAPABILITY_TIERS.apple_silicon.caps;
+    if (/apple|metal/i.test(r) && /iris/i.test(r)) return GL_CAPABILITY_TIERS.apple_intel_igpu.caps;
+    for (const key of ['nvidia_discrete', 'amd_discrete', 'intel_igpu']) {
+      if (GL_CAPABILITY_TIERS[key].match.test(r)) return GL_CAPABILITY_TIERS[key].caps;
+    }
+    return GL_CAPABILITY_TIERS.intel_igpu.caps;
+  }
+
   function patchWindowContext(targetWin) {
     if (!targetWin) return;
     try {
@@ -421,22 +619,44 @@
     function overridePrototypeGetter(protoTarget, prop, getValueFn, category, detailLabel) {
       if (!protoTarget) return;
       try {
-        const getterFn = function () {
-          if (this === protoTarget) {
-            throw new TypeError('Illegal invocation');
-          }
-          if (category) recordProbe(category, detailLabel || prop);
-          return getValueFn();
-        };
-        try {
-          Object.defineProperty(getterFn, 'name', { value: `get ${prop}`, configurable: true });
-        } catch(e) {}
-        registerStealthFn(getterFn, `get ${prop}`);
+        const desc = Object.getOwnPropertyDescriptor(protoTarget, prop);
+        const origGetter = desc && desc.get;
+        let replacementGetter;
+
+        if (origGetter) {
+          // Wrap the real native getter. Calling it first (and discarding its
+          // return value) gets us native illegal-invocation branding for
+          // free - a bad receiver throws the real TypeError, not an
+          // approximation - and the Proxy's toString/own-props transparently
+          // match the native original (see wrapNativeMethod comment above).
+          replacementGetter = new Proxy(origGetter, {
+            apply(target, thisArg, args) {
+              Reflect.apply(target, thisArg, args);
+              if (category) recordProbe(category, detailLabel || prop);
+              return getValueFn();
+            }
+          });
+        } else {
+          // No native getter exists on this prototype to wrap (e.g.
+          // navigator.brave, navigator.hid don't natively exist) - fall back
+          // to the toString-registry disguise since there's no real native
+          // to wrap transparently.
+          const fallback = function () {
+            if (this === protoTarget) throw new TypeError('Illegal invocation');
+            if (category) recordProbe(category, detailLabel || prop);
+            return getValueFn();
+          };
+          try {
+            Object.defineProperty(fallback, 'name', { value: `get ${prop}`, configurable: true });
+          } catch (e) {}
+          registerStealthFn(fallback, `get ${prop}`);
+          replacementGetter = fallback;
+        }
 
         Object.defineProperty(protoTarget, prop, {
-          get: getterFn,
-          configurable: true,
-          enumerable: true
+          get: replacementGetter,
+          configurable: desc ? desc.configurable !== false : true,
+          enumerable: desc ? desc.enumerable !== false : true
         });
       } catch (e) {}
     }
@@ -472,49 +692,27 @@
       registerStealthFn(nav.mediaDevices.enumerateDevices, 'enumerateDevices');
     }
 
-    // SVGRect Sub-Pixel Geometry Noise
+    // SVGRect geometry (getBBox/getComputedTextLength/getSubStringLength)
+    // used to add fresh Math.random() noise per call - the exact same
+    // measure-until-stable crash risk as getBoundingClientRect above.
+    // SVG-based chart libraries (d3 and friends) call getBBox in resize/
+    // redraw loops just as aggressively. Passthrough.
     if (targetWin.SVGGraphicsElement && targetWin.SVGGraphicsElement.prototype.getBBox) {
-      const origGetBBox = targetWin.SVGGraphicsElement.prototype.getBBox;
-      targetWin.SVGGraphicsElement.prototype.getBBox = function () {
-        const tag = this.tagName ? this.tagName.toLowerCase() : 'svg';
-        recordProbe('svgrect', `getBBox() on <${tag}>`);
-        const box = origGetBBox.apply(this, arguments);
-        if (box && typeof box.width === 'number') {
-          const noise = (Math.random() - 0.5) * 0.00001;
-          return {
-            x: box.x + noise,
-            y: box.y + noise,
-            width: box.width + noise,
-            height: box.height + noise,
-            top: box.top ? box.top + noise : box.y + noise,
-            bottom: box.bottom ? box.bottom + noise : box.y + box.height + noise,
-            left: box.left ? box.left + noise : box.x + noise,
-            right: box.right ? box.right + noise : box.x + box.width + noise
-          };
-        }
-        return box;
-      };
-      registerStealthFn(targetWin.SVGGraphicsElement.prototype.getBBox, 'getBBox');
+      wrapNativeMethod(targetWin.SVGGraphicsElement.prototype, 'getBBox', (target, thisArg, args) => {
+        return Reflect.apply(target, thisArg, args);
+      });
     }
 
     if (targetWin.SVGTextContentElement) {
       if (targetWin.SVGTextContentElement.prototype.getComputedTextLength) {
-        const origLength = targetWin.SVGTextContentElement.prototype.getComputedTextLength;
-        targetWin.SVGTextContentElement.prototype.getComputedTextLength = function () {
-          recordProbe('svgrect', 'getComputedTextLength()');
-          const len = origLength.apply(this, arguments);
-          return typeof len === 'number' ? len + (Math.random() - 0.5) * 0.00001 : len;
-        };
-        registerStealthFn(targetWin.SVGTextContentElement.prototype.getComputedTextLength, 'getComputedTextLength');
+        wrapNativeMethod(targetWin.SVGTextContentElement.prototype, 'getComputedTextLength', (target, thisArg, args) => {
+          return Reflect.apply(target, thisArg, args);
+        });
       }
       if (targetWin.SVGTextContentElement.prototype.getSubStringLength) {
-        const origSubLength = targetWin.SVGTextContentElement.prototype.getSubStringLength;
-        targetWin.SVGTextContentElement.prototype.getSubStringLength = function () {
-          recordProbe('svgrect', 'getSubStringLength()');
-          const len = origSubLength.apply(this, arguments);
-          return typeof len === 'number' ? len + (Math.random() - 0.5) * 0.00001 : len;
-        };
-        registerStealthFn(targetWin.SVGTextContentElement.prototype.getSubStringLength, 'getSubStringLength');
+        wrapNativeMethod(targetWin.SVGTextContentElement.prototype, 'getSubStringLength', (target, thisArg, args) => {
+          return Reflect.apply(target, thisArg, args);
+        });
       }
     }
 
@@ -569,12 +767,12 @@
 
     // Gamepad, Bluetooth, WebHID & WebUSB API Neutering (PROTOTYPE ONLY)
     if (navProto) {
-      const mockGetGamepads = function () {
+      // getGamepads is a real METHOD (data property), not an accessor -
+      // same shape mismatch as getBattery above, same fix.
+      wrapNativeMethod(navProto, 'getGamepads', (target, thisArg, args) => {
         recordProbe('peripherals', 'navigator.getGamepads()');
         return [null, null, null, null];
-      };
-      registerStealthFn(mockGetGamepads, 'getGamepads');
-      overridePrototypeGetter(navProto, 'getGamepads', () => mockGetGamepads, 'peripherals', 'navigator.getGamepads');
+      });
 
       const mockBluetooth = {
         getAvailability: () => Promise.resolve(false),
@@ -596,45 +794,26 @@
       overridePrototypeGetter(navProto, 'usb', () => mockUSB, 'peripherals', 'navigator.usb');
     }
 
-    // Sub-Pixel DOMRect & getBoundingClientRect Noise
+    // getBoundingClientRect/getClientRects used to add fresh Math.random()
+    // noise on every call. Layout code that measures-until-stable (common in
+    // ResizeObserver-driven chart/UI libraries: measure, compare to last
+    // measurement, re-measure if different) never sees two equal reads once
+    // every call returns a different random value - it loops forever,
+    // hammering these hot APIs tens of thousands of times a second until the
+    // tab locks up or crashes. Sub-pixel rect noise is a weak entropy source
+    // anyway; passthrough is the safe choice; also drop the per-call
+    // tag/class string building, since this is a hot path that can be
+    // called at very high frequency by legitimate layout code.
     if (targetWin.Element && targetWin.Element.prototype.getBoundingClientRect) {
-      const origGetBCR = targetWin.Element.prototype.getBoundingClientRect;
-      targetWin.Element.prototype.getBoundingClientRect = function () {
-        const tag = this.tagName ? this.tagName.toLowerCase() : 'element';
-        const cls = this.className && typeof this.className === 'string' ? '.' + this.className.trim().split(/\s+/).join('.') : '';
-        recordProbe('domrect', `getBoundingClientRect() on <${tag}${cls}>`);
-        const rect = origGetBCR.apply(this, arguments);
-        if (rect && typeof rect.width === 'number') {
-          const noise = (Math.random() - 0.5) * 0.00001;
-          return new DOMRect(
-            rect.x + noise,
-            rect.y + noise,
-            rect.width + noise,
-            rect.height + noise
-          );
-        }
-        return rect;
-      };
-      registerStealthFn(targetWin.Element.prototype.getBoundingClientRect, 'getBoundingClientRect');
+      wrapNativeMethod(targetWin.Element.prototype, 'getBoundingClientRect', (target, thisArg, args) => {
+        return Reflect.apply(target, thisArg, args);
+      });
     }
 
     if (targetWin.Range && targetWin.Range.prototype.getClientRects) {
-      const origGetCRs = targetWin.Range.prototype.getClientRects;
-      targetWin.Range.prototype.getClientRects = function () {
-        recordProbe('domrect', 'Range.getClientRects()');
-        const list = origGetCRs.apply(this, arguments);
-        if (list && list.length > 0) {
-          const noise = (Math.random() - 0.5) * 0.00001;
-          return Array.from(list).map(rect => new DOMRect(
-            rect.x + noise,
-            rect.y + noise,
-            rect.width + noise,
-            rect.height + noise
-          ));
-        }
-        return list;
-      };
-      registerStealthFn(targetWin.Range.prototype.getClientRects, 'getClientRects');
+      wrapNativeMethod(targetWin.Range.prototype, 'getClientRects', (target, thisArg, args) => {
+        return Reflect.apply(target, thisArg, args);
+      });
     }
 
     // Worker Constructor & URL.createObjectURL Interception
@@ -654,18 +833,44 @@
       registerStealthFn(targetWin.URL.createObjectURL, 'createObjectURL');
     }
 
+    // Worker/SharedWorker shielding is opt-out (popup toggle "Shield Web
+    // Workers", default on) rather than always-on. Running the real script
+    // through a blob: wrapper (importScripts(realURL)) to inject the shield
+    // poisons the worker's base URL for its whole lifetime - blob: URLs have
+    // no resolvable path, so any relative resource load the real script
+    // does afterward (a nested Worker/SharedWorker, a dynamic import, a wasm
+    // fetch - all common in bundled crypto workers) can silently fail. That
+    // broke Telegram's MTProto worker. Module workers always skip the
+    // wrapper since importScripts doesn't exist there. When the toggle is
+    // off, workers load at their real URL unmodified - no shield inside
+    // worker threads, but nothing breaks either. checked at call time (not
+    // patch time) so toggling it takes effect on the next worker created
+    // without needing a fresh injection.
+    function wrapWorkerCtor(OrigCtor) {
+      return function (scriptURL, options) {
+        if (activeProfile.shieldWorkers && typeof scriptURL === 'string' &&
+            !scriptURL.startsWith('blob:') && options?.type !== 'module') {
+          try {
+            const absoluteURL = new URL(scriptURL, targetWin.location.href).href;
+            const shieldHeader = generateWorkerShieldCode(activeProfile);
+            const wrapperCode = `${shieldHeader}\ntry { importScripts(${JSON.stringify(absoluteURL)}); } catch(e) {}`;
+            const blob = new Blob([wrapperCode], { type: 'application/javascript' });
+            const blobURL = URL.createObjectURL(blob);
+            return new OrigCtor(blobURL, options);
+          } catch (e) {
+            return new OrigCtor(scriptURL, options);
+          }
+        }
+        return new OrigCtor(scriptURL, options);
+      };
+    }
+
     if (targetWin.Worker) {
       const OrigWorker = targetWin.Worker;
+      const WrappedWorker = wrapWorkerCtor(OrigWorker);
       targetWin.Worker = function (scriptURL, options) {
         recordProbe('hardware', `new Worker("${scriptURL}")`);
-        if (typeof scriptURL === 'string' && !scriptURL.startsWith('blob:')) {
-          const shieldHeader = generateWorkerShieldCode(activeProfile);
-          const wrapperCode = `${shieldHeader}\ntry { importScripts(${JSON.stringify(scriptURL)}); } catch(e) {}`;
-          const blob = new Blob([wrapperCode], { type: 'application/javascript' });
-          const blobURL = URL.createObjectURL(blob);
-          return new OrigWorker(blobURL, options);
-        }
-        return new OrigWorker(scriptURL, options);
+        return WrappedWorker(scriptURL, options);
       };
       targetWin.Worker.prototype = OrigWorker.prototype;
       registerStealthFn(targetWin.Worker, 'Worker');
@@ -673,38 +878,23 @@
 
     if (targetWin.SharedWorker) {
       const OrigSharedWorker = targetWin.SharedWorker;
+      const WrappedSharedWorker = wrapWorkerCtor(OrigSharedWorker);
       targetWin.SharedWorker = function (scriptURL, options) {
         recordProbe('hardware', `new SharedWorker("${scriptURL}")`);
-        if (typeof scriptURL === 'string' && !scriptURL.startsWith('blob:')) {
-          const shieldHeader = generateWorkerShieldCode(activeProfile);
-          const wrapperCode = `${shieldHeader}\ntry { importScripts(${JSON.stringify(scriptURL)}); } catch(e) {}`;
-          const blob = new Blob([wrapperCode], { type: 'application/javascript' });
-          const blobURL = URL.createObjectURL(blob);
-          return new OrigSharedWorker(blobURL, options);
-        }
-        return new OrigSharedWorker(scriptURL, options);
+        return WrappedSharedWorker(scriptURL, options);
       };
       targetWin.SharedWorker.prototype = OrigSharedWorker.prototype;
       registerStealthFn(targetWin.SharedWorker, 'SharedWorker');
     }
 
     // ServiceWorker Registration Interception
+    // Note: the spec requires a ServiceWorker scriptURL to be http/https, so a
+    // blob: URL always throws SecurityError on register(). Shielding a service
+    // worker this way is a dead end - just record the probe and pass through.
     if (targetWin.ServiceWorkerContainer && targetWin.ServiceWorkerContainer.prototype.register) {
       const origRegister = targetWin.ServiceWorkerContainer.prototype.register;
       targetWin.ServiceWorkerContainer.prototype.register = function (scriptURL, options) {
-        const urlStr = typeof scriptURL === 'string' ? scriptURL : (scriptURL && scriptURL.toString ? scriptURL.toString() : '');
-        if (urlStr && !urlStr.startsWith('blob:')) {
-          return fetch(urlStr)
-            .then(res => res.text())
-            .then(code => {
-              const shieldHeader = generateWorkerShieldCode(activeProfile);
-              const combined = shieldHeader + '\n' + code;
-              const blob = new Blob([combined], { type: 'application/javascript' });
-              const blobURL = URL.createObjectURL(blob);
-              return origRegister.call(this, blobURL, options);
-            })
-            .catch(() => origRegister.call(this, scriptURL, options));
-        }
+        recordProbe('hardware', `serviceWorker.register("${scriptURL}")`);
         return origRegister.apply(this, arguments);
       };
       registerStealthFn(targetWin.ServiceWorkerContainer.prototype.register, 'register');
@@ -784,14 +974,21 @@
     overridePrototypeGetter(navProto, 'appVersion', () => (activeProfile.userAgent || '').replace(/^Mozilla\//, ''), 'userAgent', 'navigator.appVersion');
     overridePrototypeGetter(navProto, 'platform', () => activeProfile.platform || 'Win32', 'userAgent', 'navigator.platform');
     overridePrototypeGetter(navProto, 'vendor', () => activeProfile.vendor || 'Google Inc.', 'userAgent', 'navigator.vendor');
-    overridePrototypeGetter(navProto, 'oscpu', () => activeProfile.oscpu || 'Windows NT 10.0; Win64; x64', 'userAgent', 'navigator.oscpu');
+    // navigator.oscpu doesn't exist on real Chrome (it's a Firefox-only
+    // property) - previously this added it unconditionally, which is itself
+    // a tell for any check that tests `'oscpu' in navigator`.
     overridePrototypeGetter(navProto, 'language', () => 'en-US');
     overridePrototypeGetter(navProto, 'languages', () => Object.freeze(['en-US', 'en']));
     overridePrototypeGetter(navProto, 'hardwareConcurrency', () => activeProfile.hardwareConcurrency || 4, 'hardware', 'hardwareConcurrency');
     overridePrototypeGetter(navProto, 'deviceMemory', () => Math.min(8, activeProfile.deviceMemory || 4), 'hardware', 'deviceMemory');
     overridePrototypeGetter(navProto, 'maxTouchPoints', () => activeProfile.maxTouchPoints || 0, 'hardware', 'maxTouchPoints');
 
-    if (activeProfile.maskBrave) {
+    // Only mask navigator.brave if it actually exists (i.e. this really is
+    // Brave). Without the 'in nav' guard this would manufacture the
+    // property on vanilla Chrome, where it should never exist at all - the
+    // same "adds a property real Chrome never has" tell as the old
+    // navigator.oscpu bug.
+    if (activeProfile.maskBrave && 'brave' in nav) {
       overridePrototypeGetter(navProto, 'brave', () => undefined, 'brave', 'navigator.brave');
     }
 
@@ -872,6 +1069,13 @@
     }
 
     // Battery Status API Spoofing (PROTOTYPE ONLY)
+    // navigator.getBattery is a real METHOD on Navigator.prototype (a plain
+    // data property whose value is a function), not an accessor. Routing it
+    // through overridePrototypeGetter turned it into a getter-backed
+    // property - Object.getOwnPropertyDescriptor shows `.get` where a real
+    // browser shows `.value`, a structural tell independent of toString
+    // disguise quality. wrapNativeMethod keeps the native shape (direct
+    // value assignment, Proxy-wrapped for correct toString/own-props).
     if ('getBattery' in nav) {
       const mockBatteryManager = {
         charging: true,
@@ -883,13 +1087,10 @@
         dispatchEvent: function () { return true; }
       };
 
-      const mockGetBattery = function () {
+      wrapNativeMethod(navProto, 'getBattery', (target, thisArg, args) => {
         recordProbe('battery', 'navigator.getBattery()');
         return Promise.resolve(mockBatteryManager);
-      };
-      registerStealthFn(mockGetBattery, 'getBattery');
-
-      overridePrototypeGetter(navProto, 'getBattery', () => mockGetBattery, 'battery', 'navigator.getBattery');
+      });
     }
 
     // Safe Screen Geometry Overrides (PROTOTYPE ONLY)
@@ -915,107 +1116,118 @@
     }
 
     // WebGL Context Prototype Patching (PROTOTYPE ONLY - NO INSTANCE POLLUTION)
+    // Every override below goes through wrapNativeMethod so getParameter et
+    // al. stay Proxy-wrapped around the real native function: correct
+    // toString, zero extra own-properties, and identical whether checked
+    // from the main document, a worker (worker threads aren't patched at
+    // all right now - see the Worker/SharedWorker section - so a
+    // Worker-vs-main GPU cross-check will still catch a mismatch there
+    // regardless of anything done here), or an iframe (content scripts run
+    // per-frame via manifest all_frames, so this function re-runs
+    // independently in every frame already).
     function patchGLContext(contextProto) {
       if (!contextProto || !contextProto.getParameter) return;
+      const caps = getGLCapsForRenderer(activeProfile.webglRenderer, activeProfile.webglVendor);
 
-      const originalGetParameter = contextProto.getParameter;
-      contextProto.getParameter = function (pname) {
+      wrapNativeMethod(contextProto, 'getParameter', (target, thisArg, args) => {
+        const pname = args[0];
         const numPname = Number(pname);
 
-        if (numPname === UNMASKED_VENDOR_WEBGL || pname === 'UNMASKED_VENDOR_WEBGL') {
+        if (numPname === UNMASKED_VENDOR_WEBGL) {
           recordProbe('webgl', 'getParameter(UNMASKED_VENDOR_WEBGL)');
           return activeProfile.webglVendor || "Google Inc. (Intel)";
         }
-        if (numPname === UNMASKED_RENDERER_WEBGL || pname === 'UNMASKED_RENDERER_WEBGL') {
+        if (numPname === UNMASKED_RENDERER_WEBGL) {
           recordProbe('webgl', 'getParameter(UNMASKED_RENDERER_WEBGL)');
           return activeProfile.webglRenderer || "ANGLE (Intel, Intel(R) HD Graphics 620 Direct3D11 vs_5_0 ps_5_0, D3D11-27.20.100.8681)";
         }
         if (activeProfile.spoofWebglAdvanced) {
-          if (numPname === 3379) {
-            recordProbe('webgl', 'getParameter(MAX_TEXTURE_SIZE)');
-            return 16384;
+          if (numPname === GL_PNAME.MAX_TEXTURE_SIZE || numPname === GL_PNAME.MAX_CUBE_MAP_TEXTURE_SIZE ||
+              numPname === GL_PNAME.MAX_RENDERBUFFER_SIZE || numPname === GL_PNAME.MAX_VERTEX_ATTRIBS ||
+              numPname === GL_PNAME.MAX_VERTEX_UNIFORM_VECTORS || numPname === GL_PNAME.MAX_VARYING_VECTORS ||
+              numPname === GL_PNAME.MAX_COMBINED_TEXTURE_IMAGE_UNITS || numPname === GL_PNAME.MAX_VERTEX_TEXTURE_IMAGE_UNITS ||
+              numPname === GL_PNAME.MAX_TEXTURE_IMAGE_UNITS || numPname === GL_PNAME.MAX_FRAGMENT_UNIFORM_VECTORS ||
+              numPname === GL_PNAME.MAX_DRAW_BUFFERS_WEBGL || numPname === GL_PNAME.MAX_COLOR_ATTACHMENTS_WEBGL ||
+              numPname === GL_PNAME.MAX_SAMPLES || numPname === GL_PNAME.MAX_3D_TEXTURE_SIZE ||
+              numPname === GL_PNAME.MAX_ARRAY_TEXTURE_LAYERS || numPname === GL_PNAME.DEPTH_BITS ||
+              numPname === GL_PNAME.STENCIL_BITS || numPname === GL_PNAME.SUBPIXEL_BITS) {
+            const key = Object.keys(GL_PNAME).find(k => GL_PNAME[k] === numPname);
+            if (caps[key] !== undefined) {
+              recordProbe('webgl', `getParameter(${key})`);
+              return caps[key];
+            }
           }
-          if (numPname === 3386) {
+          if (numPname === GL_PNAME.MAX_VIEWPORT_DIMS) {
             recordProbe('webgl', 'getParameter(MAX_VIEWPORT_DIMS)');
-            return Int32Array.from([16384, 16384]);
+            return Int32Array.from([caps.MAX_TEXTURE_SIZE, caps.MAX_TEXTURE_SIZE]);
           }
-          if (numPname === 3390) {
+          if (numPname === GL_PNAME.ALIASED_LINE_WIDTH_RANGE) {
             recordProbe('webgl', 'getParameter(ALIASED_LINE_WIDTH_RANGE)');
             return Float32Array.from([1, 1]);
           }
-          if (numPname === 3391) {
+          if (numPname === GL_PNAME.ALIASED_POINT_SIZE_RANGE) {
             recordProbe('webgl', 'getParameter(ALIASED_POINT_SIZE_RANGE)');
             return Float32Array.from([1, 1024]);
           }
         }
-        return originalGetParameter.apply(this, arguments);
-      };
-      registerStealthFn(contextProto.getParameter, 'getParameter');
+        return Reflect.apply(target, thisArg, args);
+      });
 
-      if (contextProto.getExtension) {
-        const origGetExtension = contextProto.getExtension;
-        contextProto.getExtension = function (name) {
-          const ext = origGetExtension.apply(this, arguments);
-          if (name === 'WEBGL_debug_renderer_info' || name === 'WEBGL_DEBUG_RENDERER_INFO') {
-            recordProbe('webgl', `getExtension("${name}")`);
-            return {
-              UNMASKED_VENDOR_WEBGL: UNMASKED_VENDOR_WEBGL,
-              UNMASKED_RENDERER_WEBGL: UNMASKED_RENDERER_WEBGL
-            };
-          }
-          if (name === 'WEBGL_debug_shaders' && ext && ext.getTranslatedShaderSource) {
-            const origGetShaderSource = ext.getTranslatedShaderSource;
-            ext.getTranslatedShaderSource = function () {
-              recordProbe('webgl', 'getTranslatedShaderSource() comment scrub');
-              let src = origGetShaderSource.apply(this, arguments);
-              if (typeof src === 'string') {
-                src = src.replace(/Apple|M1|M2|M3|Max|Pro|Metal/gi, 'Intel');
-              }
-              return src;
-            };
-            registerStealthFn(ext.getTranslatedShaderSource, 'getTranslatedShaderSource');
-          }
-          return ext;
-        };
-        registerStealthFn(contextProto.getExtension, 'getExtension');
-      }
+      wrapNativeMethod(contextProto, 'getExtension', (target, thisArg, args) => {
+        const name = args[0];
+        const ext = Reflect.apply(target, thisArg, args);
+        if (name === 'WEBGL_debug_renderer_info' || name === 'WEBGL_DEBUG_RENDERER_INFO') {
+          recordProbe('webgl', `getExtension("${name}")`);
+          return {
+            UNMASKED_VENDOR_WEBGL: UNMASKED_VENDOR_WEBGL,
+            UNMASKED_RENDERER_WEBGL: UNMASKED_RENDERER_WEBGL
+          };
+        }
+        if (name === 'WEBGL_debug_shaders' && ext && ext.getTranslatedShaderSource) {
+          wrapNativeMethod(ext, 'getTranslatedShaderSource', (t2, this2, args2) => {
+            recordProbe('webgl', 'getTranslatedShaderSource() comment scrub');
+            let src = Reflect.apply(t2, this2, args2);
+            if (typeof src === 'string') {
+              src = src.replace(/Apple|M1|M2|M3|Max|Pro|Metal/gi, 'Intel');
+            }
+            return src;
+          });
+        }
+        return ext;
+      });
 
-      if (contextProto.getSupportedExtensions) {
-        const origGetExt = contextProto.getSupportedExtensions;
-        contextProto.getSupportedExtensions = function () {
-          if (activeProfile.spoofWebglAdvanced) {
-            recordProbe('webgl', 'getSupportedExtensions() D3D spoof');
-            return WINDOWS_D3D_EXTENSIONS;
-          }
-          return origGetExt.apply(this, arguments);
-        };
-        registerStealthFn(contextProto.getSupportedExtensions, 'getSupportedExtensions');
-      }
+      wrapNativeMethod(contextProto, 'getSupportedExtensions', (target, thisArg, args) => {
+        if (activeProfile.spoofWebglAdvanced) {
+          recordProbe('webgl', 'getSupportedExtensions() D3D spoof');
+          return WINDOWS_D3D_EXTENSIONS;
+        }
+        return Reflect.apply(target, thisArg, args);
+      });
 
-      if (contextProto.getShaderPrecisionFormat) {
-        const origShaderPrec = contextProto.getShaderPrecisionFormat;
-        contextProto.getShaderPrecisionFormat = function () {
-          if (activeProfile.spoofWebglAdvanced) {
-            recordProbe('webgl', 'getShaderPrecisionFormat()');
-            return { rangeMin: 127, rangeMax: 127, precision: 23 };
-          }
-          return origShaderPrec.apply(this, arguments);
-        };
-        registerStealthFn(contextProto.getShaderPrecisionFormat, 'getShaderPrecisionFormat');
-      }
+      wrapNativeMethod(contextProto, 'getShaderPrecisionFormat', (target, thisArg, args) => {
+        if (activeProfile.spoofWebglAdvanced) {
+          recordProbe('webgl', 'getShaderPrecisionFormat()');
+          const precisionType = Number(args[1]);
+          // LOW/MEDIUM/HIGH_INT = 36339/36340/36341, everything else is a
+          // float precision type. Desktop GL implementations report near-
+          // identical precision across the *_FLOAT tiers (and across
+          // vendors), so one shared table per kind is realistic, not a tell.
+          const isInt = precisionType === 36339 || precisionType === 36340 || precisionType === 36341;
+          const t = isInt ? GL_SHADER_PRECISION.int : GL_SHADER_PRECISION.float;
+          return { rangeMin: t.rangeMin, rangeMax: t.rangeMax, precision: t.precision };
+        }
+        return Reflect.apply(target, thisArg, args);
+      });
 
-      if (contextProto.readPixels) {
-        const origReadPixels = contextProto.readPixels;
-        contextProto.readPixels = function (x, y, w, h, format, type, pixels) {
-          recordProbe('webgl', 'readPixels() 1-bit LSB noise');
-          const res = origReadPixels.apply(this, arguments);
-          if (activeProfile.spoofWebglAdvanced && pixels && pixels.length > 3) {
-            pixels[0] = (pixels[0] ^ 1) & 0xFF;
-          }
-          return res;
-        };
-        registerStealthFn(contextProto.readPixels, 'readPixels');
-      }
+      wrapNativeMethod(contextProto, 'readPixels', (target, thisArg, args) => {
+        recordProbe('webgl', 'readPixels() 1-bit LSB noise');
+        const res = Reflect.apply(target, thisArg, args);
+        const pixels = args[6];
+        if (activeProfile.spoofWebglAdvanced && pixels && pixels.length > 3) {
+          pixels[0] = (pixels[0] ^ 1) & 0xFF;
+        }
+        return res;
+      });
     }
 
     if (targetWin.WebGLRenderingContext) patchGLContext(targetWin.WebGLRenderingContext.prototype);
@@ -1054,18 +1266,17 @@
         }
 
         const metrics = origMeasureText.apply(this, arguments);
-        if (metrics && typeof metrics.width === 'number') {
-          let widthVal = metrics.width;
-          if (forcePresent) {
-            widthVal = metrics.width + 2.5;
-            recordProbe('fonts', `measureText("${this.font}") -> Spoofed Present`);
-          } else {
-            const noise = (Math.random() - 0.5) * 0.01;
-            widthVal = metrics.width + noise;
-            recordProbe('fonts', `measureText("${this.font}") -> Sub-pixel Jittered`);
-          }
+        // forcePresent's +2.5 is deterministic (same font string -> same
+        // offset), safe. The old "else" branch added fresh Math.random()
+        // noise per call - text-fitting code that measures-until-it-fits
+        // (binary-search font sizing, canvas label layout) never converges
+        // once every measurement of the same text comes back different,
+        // which is the same measure-until-stable crash risk fixed above for
+        // getBoundingClientRect/getBBox. Real width otherwise.
+        if (metrics && typeof metrics.width === 'number' && forcePresent) {
+          recordProbe('fonts', `measureText("${this.font}") -> Spoofed Present`);
           Object.defineProperty(metrics, 'width', {
-            value: widthVal,
+            value: metrics.width + 2.5,
             configurable: true,
             enumerable: true
           });
@@ -1076,32 +1287,32 @@
     }
 
     // Canvas 2D Noise
+    // toDataURL used to read the canvas, flip a pixel, and putImageData it
+    // straight back onto the real canvas before encoding - a genuine,
+    // persistent mutation of the canvas's own pixel buffer as a side effect
+    // of "reading" it. Any detector that reads the canvas before and after
+    // calling toDataURL() (a two-line check) catches that unconditionally,
+    // no matter how deterministic the noise value is. toDataURL is now a
+    // clean passthrough: it reflects the real rendered canvas, same as
+    // getImageData does elsewhere, rather than self-outing as tampered.
+    // getImageData's noise is safe to keep - it only perturbs the freshly
+    // allocated return array, never writes back to the canvas, and the
+    // transform is a pure function of the real pixel value (XOR 1) so
+    // repeated reads of the same canvas stay internally consistent.
     if (targetWin.HTMLCanvasElement && targetWin.CanvasRenderingContext2D) {
-      const origToDataURL = targetWin.HTMLCanvasElement.prototype.toDataURL;
-      targetWin.HTMLCanvasElement.prototype.toDataURL = function () {
-        recordProbe('canvas', 'toDataURL() 1-bit pixel noise');
-        try {
-          const ctx = this.getContext('2d');
-          if (ctx && this.width > 2 && this.height > 2) {
-            const imgData = ctx.getImageData(0, 0, 1, 1);
-            imgData.data[0] = (imgData.data[0] ^ 1) & 0xFF;
-            ctx.putImageData(imgData, 0, 0);
-          }
-        } catch (e) {}
-        return origToDataURL.apply(this, arguments);
-      };
-      registerStealthFn(targetWin.HTMLCanvasElement.prototype.toDataURL, 'toDataURL');
+      wrapNativeMethod(targetWin.HTMLCanvasElement.prototype, 'toDataURL', (target, thisArg, args) => {
+        recordProbe('canvas', 'toDataURL()');
+        return Reflect.apply(target, thisArg, args);
+      });
 
-      const origGetImageData = targetWin.CanvasRenderingContext2D.prototype.getImageData;
-      targetWin.CanvasRenderingContext2D.prototype.getImageData = function (x, y, w, h) {
+      wrapNativeMethod(targetWin.CanvasRenderingContext2D.prototype, 'getImageData', (target, thisArg, args) => {
         recordProbe('canvas', 'getImageData() 1-bit pixel noise');
-        const res = origGetImageData.apply(this, arguments);
+        const res = Reflect.apply(target, thisArg, args);
         if (res && res.data && res.data.length > 3) {
           res.data[0] = (res.data[0] ^ 1) & 0xFF;
         }
         return res;
-      };
-      registerStealthFn(targetWin.CanvasRenderingContext2D.prototype.getImageData, 'getImageData');
+      });
     }
 
     // AudioContext Micro-Noise & SampleRate Standardization
@@ -1112,13 +1323,27 @@
       }
     }
 
+    // getChannelData returns a live reference to the buffer's own backing
+    // store (not a copy) - the same array on every call - and
+    // getFloatFrequencyData writes into a caller-supplied array that's
+    // typically reused every animation frame. Both used to add fresh
+    // Math.random() noise via `+=` on every call: since it's the same
+    // array, that *adds to whatever's already there* each time, and with a
+    // deterministic (non-averaging) offset that's a monotonic drift, not a
+    // one-off perturbation - repeated calls (60fps for an analyser) would
+    // walk array[0] arbitrarily far from any real value within seconds. A
+    // WeakSet makes the perturbation idempotent per array instance: applied
+    // once, deterministically, never compounded.
+    const perturbedAudioBuffers = new WeakSet();
+
     if (targetWin.AudioBuffer) {
       const origGetChannelData = targetWin.AudioBuffer.prototype.getChannelData;
       targetWin.AudioBuffer.prototype.getChannelData = function (channel) {
         recordProbe('audio', 'AudioBuffer.getChannelData() micro-noise');
         const data = origGetChannelData.apply(this, arguments);
-        if (data && data.length > 0) {
-          data[0] += (Math.random() - 0.5) * 0.00000001;
+        if (data && data.length > 0 && !perturbedAudioBuffers.has(data)) {
+          perturbedAudioBuffers.add(data);
+          data[0] += seededNoise('audio-channeldata', `${channel}-${data.length}`, 0.00000001);
         }
         return data;
       };
@@ -1131,8 +1356,9 @@
         targetWin.AnalyserNode.prototype.getFloatFrequencyData = function (array) {
           recordProbe('audio', 'AnalyserNode.getFloatFrequencyData() micro-noise');
           origGetFloatFreq.apply(this, arguments);
-          if (array && array.length > 0) {
-            array[0] += (Math.random() - 0.5) * 0.00001;
+          if (array && array.length > 0 && !perturbedAudioBuffers.has(array)) {
+            perturbedAudioBuffers.add(array);
+            array[0] += seededNoise('audio-freqdata', `${array.length}`, 0.00001);
           }
         };
         registerStealthFn(targetWin.AnalyserNode.prototype.getFloatFrequencyData, 'getFloatFrequencyData');
