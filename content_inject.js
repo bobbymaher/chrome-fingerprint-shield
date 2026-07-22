@@ -802,7 +802,7 @@
     } catch(e) {}
 
     // Client Hints - navigator.userAgentData (PROTOTYPE ONLY)
-    if (navProto?.userAgentData || nav?.userAgentData) {
+    if ('userAgentData' in nav) {
       const mockUAData = {
         get brands() { return activeProfile.brands || [{ brand: "Not:A-Brand", version: "24" }, { brand: "Chromium", version: "150" }, { brand: "Microsoft Edge", version: "150" }]; },
         get mobile() { return false; },
@@ -844,7 +844,7 @@
     }
 
     // WebGPU Protection (PROTOTYPE ONLY)
-    if (navProto?.gpu || nav?.gpu) {
+    if ('gpu' in nav) {
       const mockGPU = {
         requestAdapter: function () {
           recordProbe('webgl', 'navigator.gpu.requestAdapter()');
@@ -872,7 +872,7 @@
     }
 
     // Battery Status API Spoofing (PROTOTYPE ONLY)
-    if (navProto?.getBattery || nav?.getBattery) {
+    if ('getBattery' in nav) {
       const mockBatteryManager = {
         charging: true,
         chargingTime: 0,
