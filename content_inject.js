@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  console.log('%c[Fingerprint Shield v2.4.0]%c Rock-Solid Multi-Layer Anti-Fingerprint Shield initialized', 'color: #38bdf8; font-weight: bold;', 'color: #9ca3af;');
+  console.log('%c[Fingerprint Shield v2.5.0]%c Pure Prototype Stealth Suite initialized', 'color: #38bdf8; font-weight: bold;', 'color: #9ca3af;');
 
   let probeCounts = {
     userAgent: 0,
@@ -416,8 +416,9 @@
 
     applyStealthToStringToWindow(targetWin);
 
-    function overrideGetter(targetObj, prop, getValueFn, category, detailLabel) {
-      if (!targetObj) return;
+    // STRICT PROTOTYPE-ONLY GETTER OVERRIDE (Never attaches own properties on navigator/screen)
+    function overridePrototypeGetter(protoTarget, prop, getValueFn, category, detailLabel) {
+      if (!protoTarget) return;
       try {
         const getterFn = function () {
           if (category) recordProbe(category, detailLabel || prop);
@@ -428,16 +429,12 @@
         } catch(e) {}
         registerStealthFn(getterFn, `get ${prop}`);
 
-        Object.defineProperty(targetObj, prop, {
+        Object.defineProperty(protoTarget, prop, {
           get: getterFn,
           configurable: true,
           enumerable: true
         });
-      } catch (e) {
-        try {
-          targetObj[prop] = getValueFn();
-        } catch (err) {}
-      }
+      } catch (e) {}
     }
 
     const nav = targetWin.navigator;
@@ -548,12 +545,10 @@
       }
     }
 
-    // Multi-Monitor & Screen Details API Masking
+    // Multi-Monitor & Screen Details API Masking (PROTOTYPE ONLY)
     if (targetWin.screen) {
-      const scr = targetWin.screen;
-      const scrProto = Object.getPrototypeOf(scr) || targetWin.Screen?.prototype;
-      overrideGetter(scrProto, 'isExtended', () => false, 'screen', 'screen.isExtended');
-      overrideGetter(scr, 'isExtended', () => false, 'screen', 'screen.isExtended');
+      const scrProto = Object.getPrototypeOf(targetWin.screen) || targetWin.Screen?.prototype;
+      if (scrProto) overridePrototypeGetter(scrProto, 'isExtended', () => false, 'screen', 'screen.isExtended');
     }
 
     if (targetWin.getScreenDetails) {
@@ -567,37 +562,33 @@
       registerStealthFn(targetWin.getScreenDetails, 'getScreenDetails');
     }
 
-    // Gamepad, Bluetooth, WebHID & WebUSB API Neutering
-    if (navProto || nav) {
+    // Gamepad, Bluetooth, WebHID & WebUSB API Neutering (PROTOTYPE ONLY)
+    if (navProto) {
       const mockGetGamepads = function () {
         recordProbe('peripherals', 'navigator.getGamepads()');
         return [null, null, null, null];
       };
       registerStealthFn(mockGetGamepads, 'getGamepads');
-      if (navProto) overrideGetter(navProto, 'getGamepads', () => mockGetGamepads, 'peripherals', 'navigator.getGamepads');
-      if (nav) overrideGetter(nav, 'getGamepads', () => mockGetGamepads, 'peripherals', 'navigator.getGamepads');
+      overridePrototypeGetter(navProto, 'getGamepads', () => mockGetGamepads, 'peripherals', 'navigator.getGamepads');
 
       const mockBluetooth = {
         getAvailability: () => Promise.resolve(false),
         getDevices: () => Promise.resolve([]),
         requestDevice: () => Promise.reject(new DOMException("Bluetooth access disabled", "NotFoundError"))
       };
-      if (navProto) overrideGetter(navProto, 'bluetooth', () => mockBluetooth, 'peripherals', 'navigator.bluetooth');
-      if (nav) overrideGetter(nav, 'bluetooth', () => mockBluetooth, 'peripherals', 'navigator.bluetooth');
+      overridePrototypeGetter(navProto, 'bluetooth', () => mockBluetooth, 'peripherals', 'navigator.bluetooth');
 
       const mockHID = {
         getDevices: () => Promise.resolve([]),
         requestDevice: () => Promise.resolve([])
       };
-      if (navProto) overrideGetter(navProto, 'hid', () => mockHID, 'peripherals', 'navigator.hid');
-      if (nav) overrideGetter(nav, 'hid', () => mockHID, 'peripherals', 'navigator.hid');
+      overridePrototypeGetter(navProto, 'hid', () => mockHID, 'peripherals', 'navigator.hid');
 
       const mockUSB = {
         getDevices: () => Promise.resolve([]),
         requestDevice: () => Promise.reject(new DOMException("USB device access disabled", "NotFoundError"))
       };
-      if (navProto) overrideGetter(navProto, 'usb', () => mockUSB, 'peripherals', 'navigator.usb');
-      if (nav) overrideGetter(nav, 'usb', () => mockUSB, 'peripherals', 'navigator.usb');
+      overridePrototypeGetter(navProto, 'usb', () => mockUSB, 'peripherals', 'navigator.usb');
     }
 
     // Sub-Pixel DOMRect & getBoundingClientRect Noise
@@ -736,7 +727,7 @@
       } catch (e) {}
     }
 
-    if (!nav) return;
+    if (!navProto) return;
 
     // sendBeacon & Ping Protection
     if (nav && nav.sendBeacon) {
@@ -783,24 +774,21 @@
       } catch (e) {}
     }
 
-    // Direct Object & Prototype Navigator Properties
-    const navTargets = [nav, navProto].filter(Boolean);
-    navTargets.forEach(targetObj => {
-      overrideGetter(targetObj, 'userAgent', () => activeProfile.userAgent, 'userAgent', 'navigator.userAgent');
-      overrideGetter(targetObj, 'appVersion', () => (activeProfile.userAgent || '').replace(/^Mozilla\//, ''), 'userAgent', 'navigator.appVersion');
-      overrideGetter(targetObj, 'platform', () => activeProfile.platform || 'Win32', 'userAgent', 'navigator.platform');
-      overrideGetter(targetObj, 'vendor', () => activeProfile.vendor || 'Google Inc.', 'userAgent', 'navigator.vendor');
-      overrideGetter(targetObj, 'oscpu', () => activeProfile.oscpu || 'Windows NT 10.0; Win64; x64', 'userAgent', 'navigator.oscpu');
-      overrideGetter(targetObj, 'language', () => 'en-US');
-      overrideGetter(targetObj, 'languages', () => Object.freeze(['en-US', 'en']));
-      overrideGetter(targetObj, 'hardwareConcurrency', () => activeProfile.hardwareConcurrency || 4, 'hardware', 'hardwareConcurrency');
-      overrideGetter(targetObj, 'deviceMemory', () => Math.min(8, activeProfile.deviceMemory || 4), 'hardware', 'deviceMemory');
-      overrideGetter(targetObj, 'maxTouchPoints', () => activeProfile.maxTouchPoints || 0, 'hardware', 'maxTouchPoints');
+    // STRICT PROTOTYPE-ONLY NAVIGATOR OVERRIDES (Zero own properties on navigator instance)
+    overridePrototypeGetter(navProto, 'userAgent', () => activeProfile.userAgent, 'userAgent', 'navigator.userAgent');
+    overridePrototypeGetter(navProto, 'appVersion', () => (activeProfile.userAgent || '').replace(/^Mozilla\//, ''), 'userAgent', 'navigator.appVersion');
+    overridePrototypeGetter(navProto, 'platform', () => activeProfile.platform || 'Win32', 'userAgent', 'navigator.platform');
+    overridePrototypeGetter(navProto, 'vendor', () => activeProfile.vendor || 'Google Inc.', 'userAgent', 'navigator.vendor');
+    overridePrototypeGetter(navProto, 'oscpu', () => activeProfile.oscpu || 'Windows NT 10.0; Win64; x64', 'userAgent', 'navigator.oscpu');
+    overridePrototypeGetter(navProto, 'language', () => 'en-US');
+    overridePrototypeGetter(navProto, 'languages', () => Object.freeze(['en-US', 'en']));
+    overridePrototypeGetter(navProto, 'hardwareConcurrency', () => activeProfile.hardwareConcurrency || 4, 'hardware', 'hardwareConcurrency');
+    overridePrototypeGetter(navProto, 'deviceMemory', () => Math.min(8, activeProfile.deviceMemory || 4), 'hardware', 'deviceMemory');
+    overridePrototypeGetter(navProto, 'maxTouchPoints', () => activeProfile.maxTouchPoints || 0, 'hardware', 'maxTouchPoints');
 
-      if (activeProfile.maskBrave) {
-        overrideGetter(targetObj, 'brave', () => undefined, 'brave', 'navigator.brave');
-      }
-    });
+    if (activeProfile.maskBrave) {
+      overridePrototypeGetter(navProto, 'brave', () => undefined, 'brave', 'navigator.brave');
+    }
 
     try {
       if ('Brave' in targetWin) {
@@ -808,7 +796,7 @@
       }
     } catch(e) {}
 
-    // Client Hints - navigator.userAgentData
+    // Client Hints - navigator.userAgentData (PROTOTYPE ONLY)
     if (navProto?.userAgentData || nav?.userAgentData) {
       const mockUAData = {
         get brands() { return activeProfile.brands || [{ brand: "Not:A-Brand", version: "24" }, { brand: "Chromium", version: "150" }, { brand: "Microsoft Edge", version: "150" }]; },
@@ -847,12 +835,10 @@
       registerStealthFn(mockUAData.getHighEntropyValues, 'getHighEntropyValues');
       registerStealthFn(mockUAData.toJSON, 'toJSON');
 
-      navTargets.forEach(targetObj => {
-        overrideGetter(targetObj, 'userAgentData', () => mockUAData, 'userAgentData', 'navigator.userAgentData');
-      });
+      overridePrototypeGetter(navProto, 'userAgentData', () => mockUAData, 'userAgentData', 'navigator.userAgentData');
     }
 
-    // WebGPU Protection
+    // WebGPU Protection (PROTOTYPE ONLY)
     if (navProto?.gpu || nav?.gpu) {
       const mockGPU = {
         requestAdapter: function () {
@@ -877,12 +863,10 @@
       registerStealthFn(mockGPU.requestAdapter, 'requestAdapter');
       registerStealthFn(mockGPU.getPreferredCanvasFormat, 'getPreferredCanvasFormat');
 
-      navTargets.forEach(targetObj => {
-        overrideGetter(targetObj, 'gpu', () => mockGPU, 'webgl', 'navigator.gpu');
-      });
+      overridePrototypeGetter(navProto, 'gpu', () => mockGPU, 'webgl', 'navigator.gpu');
     }
 
-    // Battery Status API Spoofing
+    // Battery Status API Spoofing (PROTOTYPE ONLY)
     if (navProto?.getBattery || nav?.getBattery) {
       const mockBatteryManager = {
         charging: true,
@@ -900,12 +884,10 @@
       };
       registerStealthFn(mockGetBattery, 'getBattery');
 
-      navTargets.forEach(targetObj => {
-        overrideGetter(targetObj, 'getBattery', () => mockGetBattery, 'battery', 'navigator.getBattery');
-      });
+      overridePrototypeGetter(navProto, 'getBattery', () => mockGetBattery, 'battery', 'navigator.getBattery');
     }
 
-    // Safe Screen Geometry Overrides
+    // Safe Screen Geometry Overrides (PROTOTYPE ONLY)
     if (targetWin.screen) {
       const scr = targetWin.screen;
       const scrProto = Object.getPrototypeOf(scr) || targetWin.Screen?.prototype;
@@ -914,20 +896,20 @@
       const origWidthGet = Object.getOwnPropertyDescriptor(scrProto, 'width')?.get || Object.getOwnPropertyDescriptor(scr, 'width')?.get;
       const origHeightGet = Object.getOwnPropertyDescriptor(scrProto, 'height')?.get || Object.getOwnPropertyDescriptor(scr, 'height')?.get;
 
-      [scr, scrProto].filter(Boolean).forEach(targetObj => {
-        overrideGetter(targetObj, 'width', () => {
+      if (scrProto) {
+        overridePrototypeGetter(scrProto, 'width', () => {
           if (activeProfile.spoofScreen) return 1920;
           return origWidthGet ? origWidthGet.call(scr) : nativeWidth;
         }, 'screen', 'screen.width');
 
-        overrideGetter(targetObj, 'height', () => {
+        overridePrototypeGetter(scrProto, 'height', () => {
           if (activeProfile.spoofScreen) return 1080;
           return origHeightGet ? origHeightGet.call(scr) : nativeHeight;
         }, 'screen', 'screen.height');
-      });
+      }
     }
 
-    // WebGL Context Prototype Patching
+    // WebGL Context Prototype Patching (PROTOTYPE ONLY - NO INSTANCE POLLUTION)
     function patchGLContext(contextProto) {
       if (!contextProto || !contextProto.getParameter) return;
 
@@ -1034,38 +1016,6 @@
     if (targetWin.WebGLRenderingContext) patchGLContext(targetWin.WebGLRenderingContext.prototype);
     if (targetWin.WebGL2RenderingContext) patchGLContext(targetWin.WebGL2RenderingContext.prototype);
 
-    // Canvas getContext Instance & Prototype Hooking
-    function patchCanvasGetContext(canvasProto) {
-      if (!canvasProto || !canvasProto.getContext) return;
-      const origGetContext = canvasProto.getContext;
-      canvasProto.getContext = function (type, attributes) {
-        const ctx = origGetContext.apply(this, arguments);
-        if (ctx && (type === 'webgl' || type === 'webgl2' || type === 'experimental-webgl')) {
-          if (ctx.getParameter) {
-            const origParam = ctx.getParameter;
-            ctx.getParameter = function (pname) {
-              const numPname = Number(pname);
-              if (numPname === UNMASKED_VENDOR_WEBGL || pname === 'UNMASKED_VENDOR_WEBGL') {
-                recordProbe('webgl', 'Canvas.getContext(webgl) -> UNMASKED_VENDOR_WEBGL');
-                return activeProfile.webglVendor || "Google Inc. (Intel)";
-              }
-              if (numPname === UNMASKED_RENDERER_WEBGL || pname === 'UNMASKED_RENDERER_WEBGL') {
-                recordProbe('webgl', 'Canvas.getContext(webgl) -> UNMASKED_RENDERER_WEBGL');
-                return activeProfile.webglRenderer || "ANGLE (Intel, Intel(R) HD Graphics 620 Direct3D11 vs_5_0 ps_5_0, D3D11-27.20.100.8681)";
-              }
-              return origParam.apply(this, arguments);
-            };
-            registerStealthFn(ctx.getParameter, 'getParameter');
-          }
-        }
-        return ctx;
-      };
-      registerStealthFn(canvasProto.getContext, 'getContext');
-    }
-
-    if (targetWin.HTMLCanvasElement) patchCanvasGetContext(targetWin.HTMLCanvasElement.prototype);
-    if (targetWin.OffscreenCanvas) patchCanvasGetContext(targetWin.OffscreenCanvas.prototype);
-
     // Font Availability & OS Alignment Spoofing
     if (targetWin.CanvasRenderingContext2D && targetWin.CanvasRenderingContext2D.prototype.measureText) {
       const origMeasureText = targetWin.CanvasRenderingContext2D.prototype.measureText;
@@ -1153,7 +1103,7 @@
     if (targetWin.AudioContext || targetWin.webkitAudioContext) {
       const AudioCtxClass = targetWin.AudioContext || targetWin.webkitAudioContext;
       if (AudioCtxClass && AudioCtxClass.prototype) {
-        overrideGetter(AudioCtxClass.prototype, 'sampleRate', () => 44100, 'audio', 'AudioContext.sampleRate');
+        overridePrototypeGetter(AudioCtxClass.prototype, 'sampleRate', () => 44100, 'audio', 'AudioContext.sampleRate');
       }
     }
 
