@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  console.log('%c[Fingerprint Shield v2.2.0]%c Stealth Suite (Cross-Realm Function.prototype.toString Integrity) initialized', 'color: #38bdf8; font-weight: bold;', 'color: #9ca3af;');
+  console.log('%c[Fingerprint Shield v2.3.2]%c Advanced Navigator Proxy & Stealth Anti-Fingerprint Suite initialized', 'color: #38bdf8; font-weight: bold;', 'color: #9ca3af;');
 
   let probeCounts = {
     userAgent: 0,
@@ -234,7 +234,7 @@
         overrideGetter(navProto, 'appVersion', () => (profile.userAgent || '').replace(/^Mozilla\\//, ''));
         overrideGetter(navProto, 'platform', () => profile.platform || 'Win32');
         overrideGetter(navProto, 'hardwareConcurrency', () => profile.hardwareConcurrency || 4);
-        overrideGetter(navProto, 'deviceMemory', () => profile.deviceMemory || 4);
+        overrideGetter(navProto, 'deviceMemory', () => Math.min(8, profile.deviceMemory || 4));
         overrideGetter(navProto, 'language', () => 'en-US');
         overrideGetter(navProto, 'languages', () => Object.freeze(['en-US', 'en']));
       }
@@ -416,6 +416,64 @@
 
     applyStealthToStringToWindow(targetWin);
 
+    // Dynamic Navigator Proxy Wrapping (Handles non-configurable properties like navigator.brave)
+    if (targetWin.navigator && !targetWin.__NAVIGATOR_PROXIED__) {
+      try {
+        targetWin.__NAVIGATOR_PROXIED__ = true;
+        const realNav = targetWin.navigator;
+        const navProxy = new Proxy(realNav, {
+          get(target, prop, receiver) {
+            if (prop === 'brave' && activeProfile.maskBrave) {
+              recordProbe('brave', 'navigator.brave -> undefined');
+              return undefined;
+            }
+            if (prop === 'userAgent') {
+              recordProbe('userAgent', 'navigator.userAgent');
+              return activeProfile.userAgent;
+            }
+            if (prop === 'platform') {
+              recordProbe('userAgent', 'navigator.platform');
+              return activeProfile.platform || 'Win32';
+            }
+            if (prop === 'vendor') {
+              recordProbe('userAgent', 'navigator.vendor');
+              return activeProfile.vendor || 'Google Inc.';
+            }
+            if (prop === 'appVersion') {
+              recordProbe('userAgent', 'navigator.appVersion');
+              return (activeProfile.userAgent || '').replace(/^Mozilla\//, '');
+            }
+            if (prop === 'hardwareConcurrency') {
+              recordProbe('hardware', 'navigator.hardwareConcurrency');
+              return activeProfile.hardwareConcurrency || 4;
+            }
+            if (prop === 'deviceMemory') {
+              recordProbe('hardware', 'navigator.deviceMemory');
+              return Math.min(8, activeProfile.deviceMemory || 4);
+            }
+            if (prop === 'language') return 'en-US';
+            if (prop === 'languages') return Object.freeze(['en-US', 'en']);
+
+            const val = Reflect.get(target, prop, receiver);
+            if (typeof val === 'function') {
+              return val.bind(target);
+            }
+            return val;
+          },
+          has(target, prop) {
+            if (prop === 'brave' && activeProfile.maskBrave) return false;
+            return Reflect.has(target, prop);
+          }
+        });
+
+        Object.defineProperty(targetWin, 'navigator', {
+          get: function () { return navProxy; },
+          configurable: true,
+          enumerable: true
+        });
+      } catch (e) {}
+    }
+
     // STEALTH PROTOTYPE-ONLY GETTER OVERRIDE
     function overridePrototypeGetter(protoTarget, prop, getValueFn, category, detailLabel) {
       if (!protoTarget) return;
@@ -437,10 +495,10 @@
       } catch (e) {}
     }
 
-    // Disk Storage Quota API Standardization
     const nav = targetWin.navigator;
     const navProto = nav ? (Object.getPrototypeOf(nav) || targetWin.Navigator?.prototype) : null;
 
+    // Disk Storage Quota API Standardization
     if (nav && nav.storage && nav.storage.estimate) {
       const origEstimate = nav.storage.estimate;
       nav.storage.estimate = function () {
@@ -934,6 +992,14 @@
             recordProbe('webgl', 'getParameter(MAX_VIEWPORT_DIMS)');
             return Int32Array.from([16384, 16384]);
           }
+          if (numPname === 3390) {
+            recordProbe('webgl', 'getParameter(ALIASED_LINE_WIDTH_RANGE)');
+            return Float32Array.from([1, 1]);
+          }
+          if (numPname === 3391) {
+            recordProbe('webgl', 'getParameter(ALIASED_POINT_SIZE_RANGE)');
+            return Float32Array.from([1, 1024]);
+          }
         }
         return originalGetParameter.apply(this, arguments);
       };
@@ -1091,7 +1157,14 @@
       registerStealthFn(targetWin.CanvasRenderingContext2D.prototype.getImageData, 'getImageData');
     }
 
-    // AudioContext Micro-Noise
+    // AudioContext Micro-Noise & SampleRate Standardization
+    if (targetWin.AudioContext || targetWin.webkitAudioContext) {
+      const AudioCtxClass = targetWin.AudioContext || targetWin.webkitAudioContext;
+      if (AudioCtxClass && AudioCtxClass.prototype) {
+        overridePrototypeGetter(AudioCtxClass.prototype, 'sampleRate', () => 44100, 'audio', 'AudioContext.sampleRate');
+      }
+    }
+
     if (targetWin.AudioBuffer) {
       const origGetChannelData = targetWin.AudioBuffer.prototype.getChannelData;
       targetWin.AudioBuffer.prototype.getChannelData = function (channel) {
