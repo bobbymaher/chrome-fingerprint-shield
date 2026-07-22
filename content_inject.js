@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  console.log('%c[Fingerprint Shield v2.1.0]%c Stealth Suite (Worker Scope GL Sync, Prototype Integrity & Native Function Preservation) initialized', 'color: #38bdf8; font-weight: bold;', 'color: #9ca3af;');
+  console.log('%c[Fingerprint Shield v2.2.0]%c Stealth Suite (Cross-Realm Function.prototype.toString Integrity) initialized', 'color: #38bdf8; font-weight: bold;', 'color: #9ca3af;');
 
   let probeCounts = {
     userAgent: 0,
@@ -105,21 +105,48 @@
     }
   }
 
-  // Native Function toString Preservation Registry
+  // Cross-Realm Native Function toString Preservation Registry
   const stealthFnMap = new WeakMap();
-  if (typeof Function.prototype.toString === 'function') {
-    const origToString = Function.prototype.toString;
-    Function.prototype.toString = function () {
-      if (stealthFnMap.has(this)) {
-        return stealthFnMap.get(this);
-      }
-      return origToString.apply(this, arguments);
-    };
+  const origToString = Function.prototype.toString;
+
+  function customToString() {
+    if (this === customToString || this === origToString) {
+      return 'function toString() { [native code] }';
+    }
+    if (stealthFnMap.has(this)) {
+      return stealthFnMap.get(this);
+    }
+    return origToString.apply(this, arguments);
   }
+
+  try {
+    Object.defineProperty(customToString, 'name', { value: 'toString', configurable: true });
+    Object.defineProperty(customToString, 'length', { value: 0, configurable: true });
+  } catch(e) {}
+
+  stealthFnMap.set(customToString, 'function toString() { [native code] }');
+  stealthFnMap.set(origToString, 'function toString() { [native code] }');
+
+  function applyStealthToStringToWindow(win) {
+    if (!win || !win.Function || !win.Function.prototype) return;
+    try {
+      if (win.Function.prototype.toString === customToString) return;
+      Object.defineProperty(win.Function.prototype, 'toString', {
+        value: customToString,
+        writable: true,
+        enumerable: false,
+        configurable: true
+      });
+    } catch(e) {
+      try { win.Function.prototype.toString = customToString; } catch(err) {}
+    }
+  }
+
+  applyStealthToStringToWindow(window);
 
   function registerStealthFn(fn, name) {
     if (typeof fn === 'function' && name) {
-      stealthFnMap.set(fn, `function ${name}() { [native code] }`);
+      stealthFnMap.set(fn, name.startsWith('function ') ? name : `function ${name}() { [native code] }`);
     }
   }
 
@@ -387,7 +414,9 @@
       targetWin.__SHIELD_HOOKED__ = true;
     } catch (e) { return; }
 
-    // STEALTH PROTOTYPE-ONLY GETTER OVERRIDE (Never attaches own properties on navigator/screen)
+    applyStealthToStringToWindow(targetWin);
+
+    // STEALTH PROTOTYPE-ONLY GETTER OVERRIDE
     function overridePrototypeGetter(protoTarget, prop, getValueFn, category, detailLabel) {
       if (!protoTarget) return;
       try {
@@ -395,7 +424,11 @@
           if (category) recordProbe(category, detailLabel || prop);
           return getValueFn();
         };
+        try {
+          Object.defineProperty(getterFn, 'name', { value: `get ${prop}`, configurable: true });
+        } catch(e) {}
         registerStealthFn(getterFn, `get ${prop}`);
+
         Object.defineProperty(protoTarget, prop, {
           get: getterFn,
           configurable: true,
@@ -876,7 +909,7 @@
       }, 'screen', 'screen.height');
     }
 
-    // WebGL Context Prototype Patching (STRICT PROTOTYPE ONLY - NO INSTANCE OVERRIDES)
+    // WebGL Context Prototype Patching (STRICT PROTOTYPE ONLY)
     function patchGLContext(contextProto) {
       if (!contextProto || !contextProto.getParameter) return;
 
