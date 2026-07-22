@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  console.log('%c[Fingerprint Shield v1.5.0]%c Detailed Console Probe Logger & Privacy Suite initialized', 'color: #38bdf8; font-weight: bold;', 'color: #9ca3af;');
+  console.log('%c[Fingerprint Shield v1.5.1]%c Beacon Inspection & Blocking Logger initialized', 'color: #38bdf8; font-weight: bold;', 'color: #9ca3af;');
 
   let probeCounts = {
     userAgent: 0,
@@ -49,7 +49,7 @@
   let isRecordingProbe = false;
   let probeDispatchScheduled = false;
 
-  function recordProbe(category, detailInfo) {
+  function recordProbe(category, detailInfo, inspectableObj) {
     if (isRecordingProbe) return;
     isRecordingProbe = true;
     try {
@@ -61,16 +61,28 @@
         const detailStr = detailInfo ? ` → ${detailInfo}` : '';
         probeLogCounts[category] = (probeLogCounts[category] || 0) + 1;
 
-        // Log probe details with colored category badges
-        if (probeLogCounts[category] <= 15 || probeLogCounts[category] % 20 === 0) {
-          console.log(
-            `%c[Shield Probe]%c %c${category.toUpperCase()}%c${detailStr} %c(Total: ${probeCounts[category]})`,
-            'color: #38bdf8; font-weight: bold; background: #0f172a; padding: 2px 6px; border-radius: 4px;',
-            '',
-            `color: #fff; background: ${color}; font-weight: bold; padding: 2px 6px; border-radius: 4px;`,
-            'color: #e2e8f0; font-weight: 500;',
-            'color: #94a3b8; font-style: italic;'
-          );
+        if (probeLogCounts[category] <= 20 || probeLogCounts[category] % 25 === 0) {
+          if (inspectableObj) {
+            console.groupCollapsed(
+              `%c[Shield Probe]%c %c${category.toUpperCase()}%c${detailStr} %c(Total: ${probeCounts[category]})`,
+              'color: #38bdf8; font-weight: bold; background: #0f172a; padding: 2px 6px; border-radius: 4px;',
+              '',
+              `color: #fff; background: ${color}; font-weight: bold; padding: 2px 6px; border-radius: 4px;`,
+              'color: #e2e8f0; font-weight: 500;',
+              'color: #94a3b8; font-style: italic;'
+            );
+            console.log('Intercepted Payload Data:', inspectableObj);
+            console.groupEnd();
+          } else {
+            console.log(
+              `%c[Shield Probe]%c %c${category.toUpperCase()}%c${detailStr} %c(Total: ${probeCounts[category]})`,
+              'color: #38bdf8; font-weight: bold; background: #0f172a; padding: 2px 6px; border-radius: 4px;',
+              '',
+              `color: #fff; background: ${color}; font-weight: bold; padding: 2px 6px; border-radius: 4px;`,
+              'color: #e2e8f0; font-weight: 500;',
+              'color: #94a3b8; font-style: italic;'
+            );
+          }
         }
 
         if (!probeDispatchScheduled) {
@@ -603,17 +615,28 @@
     if (!nav) return;
     const navProto = Object.getPrototypeOf(nav) || targetWin.Navigator?.prototype || nav;
 
-    // sendBeacon & HTML Anchor Ping Protection
+    // 4. sendBeacon & HTML Anchor Ping Protection (WITH PAYLOAD INSPECTION LOGGING)
     if (nav.sendBeacon) {
       const origSendBeacon = nav.sendBeacon;
       nav.sendBeacon = function (url, data) {
-        recordProbe('beacons', `sendBeacon("${url}")`);
+        let inspectObj = null;
+        if (data) {
+          try {
+            if (typeof data === 'string') inspectObj = JSON.parse(data);
+            else inspectObj = data;
+          } catch(e) {
+            inspectObj = String(data);
+          }
+        }
+
         try {
           const targetUrl = new URL(url, targetWin.location.href);
           if (targetUrl.hostname !== targetWin.location.hostname) {
-            return true;
+            recordProbe('beacons', `sendBeacon("${url}") -> BLOCKED (3rd-Party Tracking)`, inspectObj);
+            return true; // Return true to trick fingerprinter without sending payload over network!
           }
         } catch (e) {}
+        recordProbe('beacons', `sendBeacon("${url}") -> ALLOWED (Same Origin)`, inspectObj);
         return origSendBeacon.apply(this, arguments);
       };
     }
