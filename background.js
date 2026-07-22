@@ -51,6 +51,7 @@ async function updateDynamicRules(profile, isEnabled, autoMode, profiles) {
       });
     }
 
+    // Rule 1: Default Header Override for ALL requests (including main_frame address bar navigation)
     const addRules = [
       {
         id: RULE_ID_FIRST_PARTY,
@@ -61,7 +62,6 @@ async function updateDynamicRules(profile, isEnabled, autoMode, profiles) {
         },
         condition: {
           urlFilter: '*',
-          domainType: 'firstParty',
           resourceTypes: [
             'main_frame', 'sub_frame', 'stylesheet', 'script', 'image',
             'font', 'object', 'xmlhttprequest', 'ping', 'csp_report',
@@ -125,11 +125,15 @@ async function updateDynamicRules(profile, isEnabled, autoMode, profiles) {
       condition: {
         urlFilter: '*',
         domainType: 'thirdParty',
-        resourceTypes: ['script', 'image', 'xmlhttprequest', 'ping', 'other']
+        resourceTypes: [
+          'main_frame', 'sub_frame', 'stylesheet', 'script', 'image',
+          'font', 'object', 'xmlhttprequest', 'ping', 'csp_report',
+          'media', 'websocket', 'other'
+        ]
       }
     });
 
-    // Rule 4: Outbound URL Tracking Parameter Stripper (Clean URLs)
+    // Rule 4: Clean URLs (URL Tracking Parameter Stripper)
     addRules.push({
       id: RULE_ID_REMOVE_TRACKING_PARAMS,
       priority: 4,
@@ -157,60 +161,70 @@ async function updateDynamicRules(profile, isEnabled, autoMode, profiles) {
       addRules
     });
   } catch (err) {
-    console.error('[Background] Failed to update dynamic DNR rules:', err);
+    console.error('[Fingerprint Shield] Dynamic rules update error:', err);
   }
 }
 
-// In-memory probe statistics per tab
-const tabProbeStats = new Map();
-
-async function getStoredState() {
-  const result = await chrome.storage.local.get([
-    'activeProfile', 'enabled', 'autoMode', 'customProfiles'
-  ]);
-  const allProfiles = { ...globalThis.DEFAULT_PROFILES, ...(result.customProfiles || {}) };
-  const profile = result.activeProfile || globalThis.DEFAULT_PROFILES['cheap_win10_edge'];
-  const enabled = result.enabled !== undefined ? result.enabled : true;
-  const autoMode = result.autoMode || 'PER_SITE_3RD_RANDOM';
-  return { profile, enabled, autoMode, allProfiles };
-}
-
-chrome.runtime.onInstalled.addListener(async () => {
-  const state = await getStoredState();
-  await updateDynamicRules(state.profile, state.enabled, state.autoMode, state.allProfiles);
-});
-
-chrome.runtime.onStartup.addListener(async () => {
-  const state = await getStoredState();
-  await updateDynamicRules(state.profile, state.enabled, state.autoMode, state.allProfiles);
-});
-
-chrome.storage.onChanged.addListener(async (changes, namespace) => {
-  if (namespace === 'local') {
-    const state = await getStoredState();
-    await updateDynamicRules(state.profile, state.enabled, state.autoMode, state.allProfiles);
-  }
-});
+// Background Tab Probe Stats Tracker
+let tabProbeStats = {};
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === '__PROBE_STATS_UPDATE__' || message.type === 'UPDATE_PROBE_STATS') {
-    const tabId = sender.tab ? sender.tab.id : null;
-    if (tabId) {
-      tabProbeStats.set(tabId, message.stats);
-      const total = message.stats ? (message.stats.total || 0) : 0;
-      if (total > 0) {
-        chrome.action.setBadgeText({ tabId, text: String(total) });
-        chrome.action.setBadgeBackgroundColor({ tabId, color: '#38bdf8' });
-      }
+  if (!message) return;
+
+  if (message.type === 'SYNC_STATE') {
+    chrome.storage.local.get(['profiles', 'activeProfile', 'isEnabled', 'autoMode'], (data) => {
+      const profiles = data.profiles || globalThis.DEFAULT_PROFILES;
+      const activeId = data.activeProfile || 'cheap_win10_edge';
+      const profile = profiles[activeId];
+      updateDynamicRules(profile, data.isEnabled, data.autoMode, profiles);
+      sendResponse({ status: 'OK' });
+    });
+    return true;
+  }
+
+  if (message.type === '__PROBE_STATS_UPDATE__') {
+    const tabId = sender && sender.tab ? sender.tab.id : null;
+    if (tabId && message.stats) {
+      tabProbeStats[tabId] = message.stats;
+      chrome.action.setBadgeText({ tabId, text: String(message.stats.total || 0) });
+      chrome.action.setBadgeBackgroundColor({ tabId, color: '#38bdf8' });
     }
-  } else if (message.type === '__GET_TAB_PROBE_STATS__' || message.type === 'GET_TAB_PROBE_STATS') {
+    return;
+  }
+
+  if (message.type === '__GET_TAB_PROBE_STATS__') {
     const tabId = message.tabId;
-    const stats = tabProbeStats.get(tabId) || null;
+    const stats = tabProbeStats[tabId] || {
+      userAgent: 0, userAgentData: 0, fonts: 0, canvas: 0, webgl: 0,
+      hardware: 0, battery: 0, timezone: 0, speech: 0, topics: 0,
+      domrect: 0, svgrect: 0, webrtc: 0, peripherals: 0, storage: 0,
+      beacons: 0, plugins: 0, total: 0
+    };
     sendResponse({ stats });
     return true;
   }
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  tabProbeStats.delete(tabId);
+  delete tabProbeStats[tabId];
+});
+
+// Initialization
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.storage.local.get(['profiles', 'activeProfile', 'isEnabled', 'autoMode'], (data) => {
+    if (!data.profiles) {
+      chrome.storage.local.set({
+        profiles: globalThis.DEFAULT_PROFILES,
+        activeProfile: 'cheap_win10_edge',
+        isEnabled: true,
+        autoMode: 'PER_SITE_3RD_RANDOM'
+      }, () => {
+        updateDynamicRules(globalThis.DEFAULT_PROFILES['cheap_win10_edge'], true, 'PER_SITE_3RD_RANDOM', globalThis.DEFAULT_PROFILES);
+      });
+    } else {
+      const activeId = data.activeProfile || 'cheap_win10_edge';
+      const profile = data.profiles[activeId];
+      updateDynamicRules(profile, data.isEnabled !== undefined ? data.isEnabled : true, data.autoMode || 'PER_SITE_3RD_RANDOM', data.profiles);
+    }
+  });
 });

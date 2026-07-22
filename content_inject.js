@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  console.log('%c[Fingerprint Shield v1.9.1]%c Privacy Suite Initialized (AJAX fetch/XHR fully unblocked for site compatibility)', 'color: #38bdf8; font-weight: bold;', 'color: #9ca3af;');
+  console.log('%c[Fingerprint Shield v2.0.0]%c Complete Anti-Fingerprint Privacy Suite initialized', 'color: #38bdf8; font-weight: bold;', 'color: #9ca3af;');
 
   let probeCounts = {
     userAgent: 0,
@@ -248,13 +248,17 @@
     } catch (e) {}
   }
 
-  // Expanded Mac Signature Fonts List
+  // Comprehensive Mac Signature Fonts List (Includes System & Regional Fonts)
   const MAC_SIGNATURE_FONTS = [
     "san francisco", "blinkmacsystemfont", "helvetica neue", "geneva",
     "monaco", "menlo", "lucida grande", "apple color emoji", "apple sd gothic neo",
-    "pingfang sc", "hiragino sans", "zapfino", "snell roundhand", "chalkboard", "marker felt",
-    "galvji", "luminari", "baskerville", "optima", "didot", "american typewriter", "cochin",
-    "hoefler text", "skia", "avenir", "apple-system", "system-ui"
+    "pingfang sc", "pingfang hk", "pingfang tc", "hiragino sans", "zapfino",
+    "snell roundhand", "chalkboard", "marker felt", "galvji", "luminari",
+    "baskerville", "optima", "didot", "american typewriter", "cochin",
+    "hoefler text", "skia", "avenir", "avenir next", "apple-system", "system-ui",
+    "al bayan", "al nile", "al tarikh", "andale mono", "big caslon", "bodoni 72",
+    "chalkduster", "copperplate", "khelvetica neus", "krungthep", "noto nashtaliq urdu",
+    "plantagenet cherokee", "savoye let"
   ];
 
   const WIN_SIGNATURE_FONTS = [
@@ -287,6 +291,29 @@
       disabled.add(RARE_FONTS_LIST[idx].toLowerCase());
     }
     return disabled;
+  }
+
+  // Intercept document.fonts.check API
+  if (typeof document !== 'undefined' && document.fonts && document.fonts.check) {
+    try {
+      const origFontsCheck = document.fonts.check;
+      document.fonts.check = function (font, text) {
+        const fontStr = (font || '').toLowerCase();
+        const isWindowsProfile = (activeProfile.platformName || 'Windows').toLowerCase().includes('win');
+        if (isWindowsProfile) {
+          let isMacFont = false;
+          MAC_SIGNATURE_FONTS.forEach(macFont => {
+            if (fontStr.includes(macFont)) isMacFont = true;
+          });
+          if (isMacFont) {
+            recordProbe('fonts', `document.fonts.check("${font}") -> Suppressed (Mac Font)`);
+            return false;
+          }
+        }
+        recordProbe('fonts', `document.fonts.check("${font}")`);
+        return origFontsCheck.apply(this, arguments);
+      };
+    } catch(e) {}
   }
 
   const UNMASKED_VENDOR_WEBGL = 37445;
@@ -349,6 +376,18 @@
           usage: 1024000,
           usageDetails: {}
         });
+      };
+    }
+
+    // Media Device Enumeration Masking
+    if (nav && nav.mediaDevices && nav.mediaDevices.enumerateDevices) {
+      nav.mediaDevices.enumerateDevices = function () {
+        recordProbe('peripherals', 'navigator.mediaDevices.enumerateDevices() -> Masked Generic');
+        return Promise.resolve([
+          { deviceId: "default", kind: "audioinput", label: "", groupId: "default" },
+          { deviceId: "default", kind: "audiooutput", label: "", groupId: "default" },
+          { deviceId: "default", kind: "videoinput", label: "", groupId: "default" }
+        ]);
       };
     }
 
