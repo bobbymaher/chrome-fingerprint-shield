@@ -7,7 +7,7 @@
       try {
         const stats = typeof e.detail === 'string' ? JSON.parse(e.detail) : e.detail;
         chrome.runtime.sendMessage({
-          type: 'UPDATE_PROBE_STATS',
+          type: '__PROBE_STATS_UPDATE__',
           stats: stats
         });
       } catch (err) {}
@@ -45,7 +45,7 @@
     const profile = profiles[selectedId] || profiles['cheap_win10_edge'];
     if (!profile) return;
 
-    // CSP-SAFE PROFILE TRANSMISSION: Use DOM CustomEvent with stringified detail (No inline <script> tag created!)
+    // CSP-SAFE PROFILE TRANSMISSION: Use DOM CustomEvent with stringified detail
     try {
       window.dispatchEvent(new CustomEvent('__APPLY_SPOOF_PROFILE__', {
         detail: JSON.stringify(profile)

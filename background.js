@@ -193,7 +193,7 @@ chrome.storage.onChanged.addListener(async (changes, namespace) => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === '__PROBE_STATS_UPDATE__') {
+  if (message.type === '__PROBE_STATS_UPDATE__' || message.type === 'UPDATE_PROBE_STATS') {
     const tabId = sender.tab ? sender.tab.id : null;
     if (tabId) {
       tabProbeStats.set(tabId, message.stats);
@@ -203,7 +203,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         chrome.action.setBadgeBackgroundColor({ tabId, color: '#38bdf8' });
       }
     }
-  } else if (message.type === '__GET_TAB_PROBE_STATS__') {
+  } else if (message.type === '__GET_TAB_PROBE_STATS__' || message.type === 'GET_TAB_PROBE_STATS') {
     const tabId = message.tabId;
     const stats = tabProbeStats.get(tabId) || null;
     sendResponse({ stats });
