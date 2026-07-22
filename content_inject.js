@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  console.log('%c[Fingerprint Shield v1.4.0]%c Storage Quota & Complete Privacy Suite initialized', 'color: #38bdf8; font-weight: bold;', 'color: #9ca3af;');
+  console.log('%c[Fingerprint Shield v1.5.0]%c Detailed Console Probe Logger & Privacy Suite initialized', 'color: #38bdf8; font-weight: bold;', 'color: #9ca3af;');
 
   let probeCounts = {
     userAgent: 0,
@@ -27,16 +27,51 @@
     total: 0
   };
 
+  const PROBE_COLOR_MAP = {
+    domrect: '#a855f7',
+    webgl: '#3b82f6',
+    fonts: '#f59e0b',
+    canvas: '#ec4899',
+    audio: '#8b5cf6',
+    topics: '#10b981',
+    webrtc: '#ef4444',
+    storage: '#06b6d4',
+    userAgent: '#38bdf8',
+    userAgentData: '#6366f1',
+    battery: '#eab308',
+    speech: '#f97316',
+    svgrect: '#14b8a6',
+    peripherals: '#64748b',
+    beacons: '#d946ef'
+  };
+
+  let probeLogCounts = {};
   let isRecordingProbe = false;
   let probeDispatchScheduled = false;
 
-  function recordProbe(category) {
+  function recordProbe(category, detailInfo) {
     if (isRecordingProbe) return;
     isRecordingProbe = true;
     try {
       if (probeCounts[category] !== undefined) {
         probeCounts[category]++;
         probeCounts.total++;
+
+        const color = PROBE_COLOR_MAP[category] || '#38bdf8';
+        const detailStr = detailInfo ? ` → ${detailInfo}` : '';
+        probeLogCounts[category] = (probeLogCounts[category] || 0) + 1;
+
+        // Log probe details with colored category badges
+        if (probeLogCounts[category] <= 15 || probeLogCounts[category] % 20 === 0) {
+          console.log(
+            `%c[Shield Probe]%c %c${category.toUpperCase()}%c${detailStr} %c(Total: ${probeCounts[category]})`,
+            'color: #38bdf8; font-weight: bold; background: #0f172a; padding: 2px 6px; border-radius: 4px;',
+            '',
+            `color: #fff; background: ${color}; font-weight: bold; padding: 2px 6px; border-radius: 4px;`,
+            'color: #e2e8f0; font-weight: 500;',
+            'color: #94a3b8; font-style: italic;'
+          );
+        }
 
         if (!probeDispatchScheduled) {
           probeDispatchScheduled = true;
@@ -102,7 +137,7 @@
   if (typeof document !== 'undefined') {
     try {
       document.browsingTopics = function () {
-        recordProbe('topics');
+        recordProbe('topics', 'document.browsingTopics() query');
         const t1 = 1 + Math.floor(Math.random() * 629);
         const t2 = 1 + Math.floor(Math.random() * 629);
         const t3 = 1 + Math.floor(Math.random() * 629);
@@ -191,8 +226,8 @@
       Intl.DateTimeFormat.prototype.resolvedOptions = function () {
         const res = origResolvedOptions.apply(this, arguments);
         if (res && res.timeZone) {
-          recordProbe('timezone');
           const spoofedTz = getSpoofedTimezone(res.timeZone || nativeTz, activeProfile?.id);
+          recordProbe('timezone', `Intl.resolvedOptions() -> ${spoofedTz}`);
           res.timeZone = spoofedTz;
         }
         return res;
@@ -273,11 +308,11 @@
       targetWin.__SHIELD_HOOKED__ = true;
     } catch (e) { return; }
 
-    function overrideDynamicGetter(target, prop, getValueFn, category) {
+    function overrideDynamicGetter(target, prop, getValueFn, category, detailLabel) {
       try {
         Object.defineProperty(target, prop, {
           get: function () {
-            if (category) recordProbe(category);
+            if (category) recordProbe(category, detailLabel || prop);
             return getValueFn();
           },
           configurable: true,
@@ -290,12 +325,12 @@
       }
     }
 
-    // 1. Disk Storage Quota API Standardization
+    // Disk Storage Quota API Standardization
     const nav = targetWin.navigator;
     if (nav && nav.storage && nav.storage.estimate) {
       const origEstimate = nav.storage.estimate;
       nav.storage.estimate = function () {
-        recordProbe('storage');
+        recordProbe('storage', 'navigator.storage.estimate()');
         return Promise.resolve({
           quota: 107374182400,
           usage: 1024000,
@@ -304,11 +339,12 @@
       };
     }
 
-    // 2. SVGRect Sub-Pixel Geometry Noise
+    // SVGRect Sub-Pixel Geometry Noise
     if (targetWin.SVGGraphicsElement && targetWin.SVGGraphicsElement.prototype.getBBox) {
       const origGetBBox = targetWin.SVGGraphicsElement.prototype.getBBox;
       targetWin.SVGGraphicsElement.prototype.getBBox = function () {
-        recordProbe('svgrect');
+        const tag = this.tagName ? this.tagName.toLowerCase() : 'svg';
+        recordProbe('svgrect', `getBBox() on <${tag}>`);
         const box = origGetBBox.apply(this, arguments);
         if (box && typeof box.width === 'number') {
           const noise = (Math.random() - 0.5) * 0.00001;
@@ -331,7 +367,7 @@
       if (targetWin.SVGTextContentElement.prototype.getComputedTextLength) {
         const origLength = targetWin.SVGTextContentElement.prototype.getComputedTextLength;
         targetWin.SVGTextContentElement.prototype.getComputedTextLength = function () {
-          recordProbe('svgrect');
+          recordProbe('svgrect', 'getComputedTextLength()');
           const len = origLength.apply(this, arguments);
           return typeof len === 'number' ? len + (Math.random() - 0.5) * 0.00001 : len;
         };
@@ -339,19 +375,19 @@
       if (targetWin.SVGTextContentElement.prototype.getSubStringLength) {
         const origSubLength = targetWin.SVGTextContentElement.prototype.getSubStringLength;
         targetWin.SVGTextContentElement.prototype.getSubStringLength = function () {
-          recordProbe('svgrect');
+          recordProbe('svgrect', 'getSubStringLength()');
           const len = origSubLength.apply(this, arguments);
           return typeof len === 'number' ? len + (Math.random() - 0.5) * 0.00001 : len;
         };
       }
     }
 
-    // 3. Smart WebRTC Private LAN IP Scrubbing (Meeting-Safe)
+    // Smart WebRTC Private LAN IP Scrubbing (Meeting-Safe)
     if (targetWin.RTCPeerConnection) {
       const origCreateOffer = targetWin.RTCPeerConnection.prototype.createOffer;
       if (origCreateOffer) {
         targetWin.RTCPeerConnection.prototype.createOffer = function () {
-          recordProbe('webrtc');
+          recordProbe('webrtc', 'RTCPeerConnection.createOffer() SDP candidate scrub');
           return origCreateOffer.apply(this, arguments).then(offer => {
             if (offer && offer.sdp) {
               offer.sdp = offer.sdp.replace(/a=candidate:.*?\s(192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+|fe80::[a-fA-F0-9:]+).*?\r\n/gi, '');
@@ -364,7 +400,7 @@
       const origCreateAnswer = targetWin.RTCPeerConnection.prototype.createAnswer;
       if (origCreateAnswer) {
         targetWin.RTCPeerConnection.prototype.createAnswer = function () {
-          recordProbe('webrtc');
+          recordProbe('webrtc', 'RTCPeerConnection.createAnswer() SDP candidate scrub');
           return origCreateAnswer.apply(this, arguments).then(answer => {
             if (answer && answer.sdp) {
               answer.sdp = answer.sdp.replace(/a=candidate:.*?\s(192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+|fe80::[a-fA-F0-9:]+).*?\r\n/gi, '');
@@ -375,17 +411,17 @@
       }
     }
 
-    // 4. Multi-Monitor & Screen Details API Masking
+    // Multi-Monitor & Screen Details API Masking
     if (targetWin.screen) {
       const scr = targetWin.screen;
       const scrProto = Object.getPrototypeOf(scr) || targetWin.Screen?.prototype || scr;
-      overrideDynamicGetter(scrProto, 'isExtended', () => false, 'screen');
-      overrideDynamicGetter(scr, 'isExtended', () => false, 'screen');
+      overrideDynamicGetter(scrProto, 'isExtended', () => false, 'screen', 'screen.isExtended');
+      overrideDynamicGetter(scr, 'isExtended', () => false, 'screen', 'screen.isExtended');
     }
 
     if (targetWin.getScreenDetails) {
       targetWin.getScreenDetails = function () {
-        recordProbe('screen');
+        recordProbe('screen', 'window.getScreenDetails()');
         return Promise.resolve({
           currentScreen: { isPrimary: true, isInternal: true, label: "Primary Display" },
           screens: [{ isPrimary: true, isInternal: true, label: "Primary Display" }]
@@ -393,17 +429,17 @@
       };
     }
 
-    // 5. Gamepad, Bluetooth, WebHID & WebUSB API Neutering
+    // Gamepad, Bluetooth, WebHID & WebUSB API Neutering
     if (nav) {
       const navProto = Object.getPrototypeOf(nav) || targetWin.Navigator?.prototype || nav;
 
       if (nav.getGamepads || navProto.getGamepads) {
         const mockGetGamepads = function () {
-          recordProbe('peripherals');
+          recordProbe('peripherals', 'navigator.getGamepads()');
           return [null, null, null, null];
         };
-        overrideDynamicGetter(navProto, 'getGamepads', () => mockGetGamepads, 'peripherals');
-        overrideDynamicGetter(nav, 'getGamepads', () => mockGetGamepads, 'peripherals');
+        overrideDynamicGetter(navProto, 'getGamepads', () => mockGetGamepads, 'peripherals', 'navigator.getGamepads');
+        overrideDynamicGetter(nav, 'getGamepads', () => mockGetGamepads, 'peripherals', 'navigator.getGamepads');
       }
 
       if (nav.bluetooth || navProto.bluetooth) {
@@ -412,8 +448,8 @@
           getDevices: () => Promise.resolve([]),
           requestDevice: () => Promise.reject(new DOMException("Bluetooth access disabled", "NotFoundError"))
         };
-        overrideDynamicGetter(navProto, 'bluetooth', () => mockBluetooth, 'peripherals');
-        overrideDynamicGetter(nav, 'bluetooth', () => mockBluetooth, 'peripherals');
+        overrideDynamicGetter(navProto, 'bluetooth', () => mockBluetooth, 'peripherals', 'navigator.bluetooth');
+        overrideDynamicGetter(nav, 'bluetooth', () => mockBluetooth, 'peripherals', 'navigator.bluetooth');
       }
 
       if (nav.hid || navProto.hid) {
@@ -421,8 +457,8 @@
           getDevices: () => Promise.resolve([]),
           requestDevice: () => Promise.resolve([])
         };
-        overrideDynamicGetter(navProto, 'hid', () => mockHID, 'peripherals');
-        overrideDynamicGetter(nav, 'hid', () => mockHID, 'peripherals');
+        overrideDynamicGetter(navProto, 'hid', () => mockHID, 'peripherals', 'navigator.hid');
+        overrideDynamicGetter(nav, 'hid', () => mockHID, 'peripherals', 'navigator.hid');
       }
 
       if (nav.usb || navProto.usb) {
@@ -430,8 +466,8 @@
           getDevices: () => Promise.resolve([]),
           requestDevice: () => Promise.reject(new DOMException("USB device access disabled", "NotFoundError"))
         };
-        overrideDynamicGetter(navProto, 'usb', () => mockUSB, 'peripherals');
-        overrideDynamicGetter(nav, 'usb', () => mockUSB, 'peripherals');
+        overrideDynamicGetter(navProto, 'usb', () => mockUSB, 'peripherals', 'navigator.usb');
+        overrideDynamicGetter(nav, 'usb', () => mockUSB, 'peripherals', 'navigator.usb');
       }
     }
 
@@ -439,7 +475,9 @@
     if (targetWin.Element && targetWin.Element.prototype.getBoundingClientRect) {
       const origGetBCR = targetWin.Element.prototype.getBoundingClientRect;
       targetWin.Element.prototype.getBoundingClientRect = function () {
-        recordProbe('domrect');
+        const tag = this.tagName ? this.tagName.toLowerCase() : 'element';
+        const cls = this.className && typeof this.className === 'string' ? '.' + this.className.trim().split(/\s+/).join('.') : '';
+        recordProbe('domrect', `getBoundingClientRect() on <${tag}${cls}>`);
         const rect = origGetBCR.apply(this, arguments);
         if (rect && typeof rect.width === 'number') {
           const noise = (Math.random() - 0.5) * 0.00001;
@@ -457,7 +495,7 @@
     if (targetWin.Range && targetWin.Range.prototype.getClientRects) {
       const origGetCRs = targetWin.Range.prototype.getClientRects;
       targetWin.Range.prototype.getClientRects = function () {
-        recordProbe('domrect');
+        recordProbe('domrect', 'Range.getClientRects()');
         const list = origGetCRs.apply(this, arguments);
         if (list && list.length > 0) {
           const noise = (Math.random() - 0.5) * 0.00001;
@@ -491,7 +529,7 @@
     if (targetWin.Worker) {
       const OrigWorker = targetWin.Worker;
       targetWin.Worker = function (scriptURL, options) {
-        recordProbe('hardware');
+        recordProbe('hardware', `new Worker("${scriptURL}")`);
         if (typeof scriptURL === 'string' && !scriptURL.startsWith('blob:')) {
           const shieldHeader = generateWorkerShieldCode(activeProfile);
           const wrapperCode = `${shieldHeader}\ntry { importScripts(${JSON.stringify(scriptURL)}); } catch(e) {}`;
@@ -507,7 +545,7 @@
     if (targetWin.SharedWorker) {
       const OrigSharedWorker = targetWin.SharedWorker;
       targetWin.SharedWorker = function (scriptURL, options) {
-        recordProbe('hardware');
+        recordProbe('hardware', `new SharedWorker("${scriptURL}")`);
         if (typeof scriptURL === 'string' && !scriptURL.startsWith('blob:')) {
           const shieldHeader = generateWorkerShieldCode(activeProfile);
           const wrapperCode = `${shieldHeader}\ntry { importScripts(${JSON.stringify(scriptURL)}); } catch(e) {}`;
@@ -550,7 +588,7 @@
       ];
 
       const mockGetVoices = function () {
-        recordProbe('speech');
+        recordProbe('speech', 'speechSynthesis.getVoices()');
         return mockVoices;
       };
 
@@ -569,7 +607,7 @@
     if (nav.sendBeacon) {
       const origSendBeacon = nav.sendBeacon;
       nav.sendBeacon = function (url, data) {
-        recordProbe('beacons');
+        recordProbe('beacons', `sendBeacon("${url}")`);
         try {
           const targetUrl = new URL(url, targetWin.location.href);
           if (targetUrl.hostname !== targetWin.location.hostname) {
@@ -592,20 +630,20 @@
     }
 
     // Standard Navigator properties
-    overrideDynamicGetter(navProto, 'userAgent', () => activeProfile.userAgent, 'userAgent');
-    overrideDynamicGetter(nav, 'userAgent', () => activeProfile.userAgent, 'userAgent');
+    overrideDynamicGetter(navProto, 'userAgent', () => activeProfile.userAgent, 'userAgent', 'navigator.userAgent');
+    overrideDynamicGetter(nav, 'userAgent', () => activeProfile.userAgent, 'userAgent', 'navigator.userAgent');
 
-    overrideDynamicGetter(navProto, 'appVersion', () => (activeProfile.userAgent || '').replace(/^Mozilla\//, ''), 'userAgent');
-    overrideDynamicGetter(nav, 'appVersion', () => (activeProfile.userAgent || '').replace(/^Mozilla\//, ''), 'userAgent');
+    overrideDynamicGetter(navProto, 'appVersion', () => (activeProfile.userAgent || '').replace(/^Mozilla\//, ''), 'userAgent', 'navigator.appVersion');
+    overrideDynamicGetter(nav, 'appVersion', () => (activeProfile.userAgent || '').replace(/^Mozilla\//, ''), 'userAgent', 'navigator.appVersion');
 
-    overrideDynamicGetter(navProto, 'platform', () => activeProfile.platform || 'Win32', 'userAgent');
-    overrideDynamicGetter(nav, 'platform', () => activeProfile.platform || 'Win32', 'userAgent');
+    overrideDynamicGetter(navProto, 'platform', () => activeProfile.platform || 'Win32', 'userAgent', 'navigator.platform');
+    overrideDynamicGetter(nav, 'platform', () => activeProfile.platform || 'Win32', 'userAgent', 'navigator.platform');
 
-    overrideDynamicGetter(navProto, 'vendor', () => activeProfile.vendor || 'Google Inc.', 'userAgent');
-    overrideDynamicGetter(nav, 'vendor', () => activeProfile.vendor || 'Google Inc.', 'userAgent');
+    overrideDynamicGetter(navProto, 'vendor', () => activeProfile.vendor || 'Google Inc.', 'userAgent', 'navigator.vendor');
+    overrideDynamicGetter(nav, 'vendor', () => activeProfile.vendor || 'Google Inc.', 'userAgent', 'navigator.vendor');
 
-    overrideDynamicGetter(navProto, 'oscpu', () => activeProfile.oscpu || 'Windows NT 10.0; Win64; x64', 'userAgent');
-    overrideDynamicGetter(nav, 'oscpu', () => activeProfile.oscpu || 'Windows NT 10.0; Win64; x64', 'userAgent');
+    overrideDynamicGetter(navProto, 'oscpu', () => activeProfile.oscpu || 'Windows NT 10.0; Win64; x64', 'userAgent', 'navigator.oscpu');
+    overrideDynamicGetter(nav, 'oscpu', () => activeProfile.oscpu || 'Windows NT 10.0; Win64; x64', 'userAgent', 'navigator.oscpu');
 
     // Languages
     overrideDynamicGetter(navProto, 'language', () => 'en-US');
@@ -614,14 +652,14 @@
     overrideDynamicGetter(nav, 'languages', () => Object.freeze(['en-US', 'en']));
 
     // Hardware specs
-    overrideDynamicGetter(navProto, 'hardwareConcurrency', () => activeProfile.hardwareConcurrency || 4, 'hardware');
-    overrideDynamicGetter(nav, 'hardwareConcurrency', () => activeProfile.hardwareConcurrency || 4, 'hardware');
+    overrideDynamicGetter(navProto, 'hardwareConcurrency', () => activeProfile.hardwareConcurrency || 4, 'hardware', 'hardwareConcurrency');
+    overrideDynamicGetter(nav, 'hardwareConcurrency', () => activeProfile.hardwareConcurrency || 4, 'hardware', 'hardwareConcurrency');
 
-    overrideDynamicGetter(navProto, 'deviceMemory', () => activeProfile.deviceMemory || 4, 'hardware');
-    overrideDynamicGetter(nav, 'deviceMemory', () => activeProfile.deviceMemory || 4, 'hardware');
+    overrideDynamicGetter(navProto, 'deviceMemory', () => activeProfile.deviceMemory || 4, 'hardware', 'deviceMemory');
+    overrideDynamicGetter(nav, 'deviceMemory', () => activeProfile.deviceMemory || 4, 'hardware', 'deviceMemory');
 
-    overrideDynamicGetter(navProto, 'maxTouchPoints', () => activeProfile.maxTouchPoints || 0, 'hardware');
-    overrideDynamicGetter(nav, 'maxTouchPoints', () => activeProfile.maxTouchPoints || 0, 'hardware');
+    overrideDynamicGetter(navProto, 'maxTouchPoints', () => activeProfile.maxTouchPoints || 0, 'hardware', 'maxTouchPoints');
+    overrideDynamicGetter(nav, 'maxTouchPoints', () => activeProfile.maxTouchPoints || 0, 'hardware', 'maxTouchPoints');
 
     // Client Hints - navigator.userAgentData
     if (nav.userAgentData || navProto.userAgentData) {
@@ -630,7 +668,7 @@
         get mobile() { return false; },
         get platform() { return activeProfile.platformName || "Windows"; },
         getHighEntropyValues: function (hints) {
-          recordProbe('userAgentData');
+          recordProbe('userAgentData', `getHighEntropyValues(${JSON.stringify(hints || [])})`);
           return new Promise(function (resolve) {
             const platformName = activeProfile.platformName || "Windows";
             const platformVersion = activeProfile.platformVersion || "10.0.0";
@@ -655,20 +693,20 @@
           });
         },
         toJSON: function () {
-          recordProbe('userAgentData');
+          recordProbe('userAgentData', 'userAgentData.toJSON()');
           return { brands: activeProfile.brands, mobile: false, platform: activeProfile.platformName || "Windows" };
         }
       };
 
-      overrideDynamicGetter(navProto, 'userAgentData', () => mockUAData, 'userAgentData');
-      overrideDynamicGetter(nav, 'userAgentData', () => mockUAData, 'userAgentData');
+      overrideDynamicGetter(navProto, 'userAgentData', () => mockUAData, 'userAgentData', 'navigator.userAgentData');
+      overrideDynamicGetter(nav, 'userAgentData', () => mockUAData, 'userAgentData', 'navigator.userAgentData');
     }
 
     // WebGPU Protection
     if (nav.gpu || navProto.gpu) {
       const mockGPU = {
         requestAdapter: function () {
-          recordProbe('webgl');
+          recordProbe('webgl', 'navigator.gpu.requestAdapter()');
           const mockAdapterInfo = {
             vendor: "intel",
             architecture: "gen-9",
@@ -687,8 +725,8 @@
         getPreferredCanvasFormat: () => 'bgra8unorm'
       };
 
-      overrideDynamicGetter(navProto, 'gpu', () => mockGPU, 'webgl');
-      overrideDynamicGetter(nav, 'gpu', () => mockGPU, 'webgl');
+      overrideDynamicGetter(navProto, 'gpu', () => mockGPU, 'webgl', 'navigator.gpu');
+      overrideDynamicGetter(nav, 'gpu', () => mockGPU, 'webgl', 'navigator.gpu');
     }
 
     // Battery Status API Spoofing
@@ -704,12 +742,12 @@
       };
 
       const mockGetBattery = function () {
-        recordProbe('battery');
+        recordProbe('battery', 'navigator.getBattery()');
         return Promise.resolve(mockBatteryManager);
       };
 
-      overrideDynamicGetter(navProto, 'getBattery', () => mockGetBattery, 'battery');
-      overrideDynamicGetter(nav, 'getBattery', () => mockGetBattery, 'battery');
+      overrideDynamicGetter(navProto, 'getBattery', () => mockGetBattery, 'battery', 'navigator.getBattery');
+      overrideDynamicGetter(nav, 'getBattery', () => mockGetBattery, 'battery', 'navigator.getBattery');
     }
 
     // Safe Screen Geometry Overrides
@@ -724,12 +762,12 @@
       overrideDynamicGetter(scrProto, 'width', () => {
         if (activeProfile.spoofScreen) return 1920;
         return origWidthGet ? origWidthGet.call(scr) : nativeWidth;
-      }, 'screen');
+      }, 'screen', 'screen.width');
 
       overrideDynamicGetter(scrProto, 'height', () => {
         if (activeProfile.spoofScreen) return 1080;
         return origHeightGet ? origHeightGet.call(scr) : nativeHeight;
-      }, 'screen');
+      }, 'screen', 'screen.height');
     }
 
     // WebGL Context Patching
@@ -741,20 +779,20 @@
         const numPname = Number(pname);
 
         if (numPname === UNMASKED_VENDOR_WEBGL || pname === 'UNMASKED_VENDOR_WEBGL') {
-          recordProbe('webgl');
+          recordProbe('webgl', 'getParameter(UNMASKED_VENDOR_WEBGL)');
           return activeProfile.webglVendor || "Google Inc. (Intel)";
         }
         if (numPname === UNMASKED_RENDERER_WEBGL || pname === 'UNMASKED_RENDERER_WEBGL') {
-          recordProbe('webgl');
+          recordProbe('webgl', 'getParameter(UNMASKED_RENDERER_WEBGL)');
           return activeProfile.webglRenderer || "ANGLE (Intel, Intel(R) HD Graphics 620 Direct3D11 vs_5_0 ps_5_0, D3D11-27.20.100.8681)";
         }
         if (activeProfile.spoofWebglAdvanced) {
           if (numPname === 3379) {
-            recordProbe('webgl');
+            recordProbe('webgl', 'getParameter(MAX_TEXTURE_SIZE)');
             return 16384;
           }
           if (numPname === 3386) {
-            recordProbe('webgl');
+            recordProbe('webgl', 'getParameter(MAX_VIEWPORT_DIMS)');
             return Int32Array.from([16384, 16384]);
           }
         }
@@ -766,7 +804,7 @@
         contextProto.getExtension = function (name) {
           const ext = origGetExtension.apply(this, arguments);
           if (name === 'WEBGL_debug_renderer_info' || name === 'WEBGL_DEBUG_RENDERER_INFO') {
-            recordProbe('webgl');
+            recordProbe('webgl', `getExtension("${name}")`);
             return {
               UNMASKED_VENDOR_WEBGL: UNMASKED_VENDOR_WEBGL,
               UNMASKED_RENDERER_WEBGL: UNMASKED_RENDERER_WEBGL
@@ -775,7 +813,7 @@
           if (name === 'WEBGL_debug_shaders' && ext && ext.getTranslatedShaderSource) {
             const origGetShaderSource = ext.getTranslatedShaderSource;
             ext.getTranslatedShaderSource = function () {
-              recordProbe('webgl');
+              recordProbe('webgl', 'getTranslatedShaderSource() comment scrub');
               let src = origGetShaderSource.apply(this, arguments);
               if (typeof src === 'string') {
                 src = src.replace(/Apple|M1|M2|M3|Max|Pro|Metal/gi, 'Intel');
@@ -791,7 +829,7 @@
         const origGetExt = contextProto.getSupportedExtensions;
         contextProto.getSupportedExtensions = function () {
           if (activeProfile.spoofWebglAdvanced) {
-            recordProbe('webgl');
+            recordProbe('webgl', 'getSupportedExtensions() D3D spoof');
             return WINDOWS_D3D_EXTENSIONS;
           }
           return origGetExt.apply(this, arguments);
@@ -802,7 +840,7 @@
         const origShaderPrec = contextProto.getShaderPrecisionFormat;
         contextProto.getShaderPrecisionFormat = function () {
           if (activeProfile.spoofWebglAdvanced) {
-            recordProbe('webgl');
+            recordProbe('webgl', 'getShaderPrecisionFormat()');
             return { rangeMin: 127, rangeMax: 127, precision: 23 };
           }
           return origShaderPrec.apply(this, arguments);
@@ -812,7 +850,7 @@
       if (contextProto.readPixels) {
         const origReadPixels = contextProto.readPixels;
         contextProto.readPixels = function (x, y, w, h, format, type, pixels) {
-          recordProbe('webgl');
+          recordProbe('webgl', 'readPixels() 1-bit LSB noise');
           const res = origReadPixels.apply(this, arguments);
           if (activeProfile.spoofWebglAdvanced && pixels && pixels.length > 3) {
             pixels[0] = (pixels[0] ^ 1) & 0xFF;
@@ -836,11 +874,11 @@
             ctx.getParameter = function (pname) {
               const numPname = Number(pname);
               if (numPname === UNMASKED_VENDOR_WEBGL || pname === 'UNMASKED_VENDOR_WEBGL') {
-                recordProbe('webgl');
+                recordProbe('webgl', 'Canvas.getContext(webgl) -> UNMASKED_VENDOR_WEBGL');
                 return activeProfile.webglVendor || "Google Inc. (Intel)";
               }
               if (numPname === UNMASKED_RENDERER_WEBGL || pname === 'UNMASKED_RENDERER_WEBGL') {
-                recordProbe('webgl');
+                recordProbe('webgl', 'Canvas.getContext(webgl) -> UNMASKED_RENDERER_WEBGL');
                 return activeProfile.webglRenderer || "ANGLE (Intel, Intel(R) HD Graphics 620 Direct3D11 vs_5_0 ps_5_0, D3D11-27.20.100.8681)";
               }
               return origParam.apply(this, arguments);
@@ -878,7 +916,7 @@
         }
 
         if (forceAbsent) {
-          recordProbe('fonts');
+          recordProbe('fonts', `measureText("${this.font}") -> Suppressed (Mac/Rare Font)`);
           const savedFont = this.font;
           this.font = '72px sans-serif';
           const fallbackMetrics = origMeasureText.apply(this, arguments);
@@ -891,10 +929,11 @@
           let widthVal = metrics.width;
           if (forcePresent) {
             widthVal = metrics.width + 2.5;
-            recordProbe('fonts');
+            recordProbe('fonts', `measureText("${this.font}") -> Spoofed Present`);
           } else {
             const noise = (Math.random() - 0.5) * 0.01;
             widthVal = metrics.width + noise;
+            recordProbe('fonts', `measureText("${this.font}") -> Sub-pixel Jittered`);
           }
           Object.defineProperty(metrics, 'width', {
             value: widthVal,
@@ -910,7 +949,7 @@
     if (targetWin.HTMLCanvasElement && targetWin.CanvasRenderingContext2D) {
       const origToDataURL = targetWin.HTMLCanvasElement.prototype.toDataURL;
       targetWin.HTMLCanvasElement.prototype.toDataURL = function () {
-        recordProbe('canvas');
+        recordProbe('canvas', 'toDataURL() 1-bit pixel noise');
         try {
           const ctx = this.getContext('2d');
           if (ctx && this.width > 2 && this.height > 2) {
@@ -924,7 +963,7 @@
 
       const origGetImageData = targetWin.CanvasRenderingContext2D.prototype.getImageData;
       CanvasRenderingContext2D.prototype.getImageData = function (x, y, w, h) {
-        recordProbe('canvas');
+        recordProbe('canvas', 'getImageData() 1-bit pixel noise');
         const res = origGetImageData.apply(this, arguments);
         if (res && res.data && res.data.length > 3) {
           res.data[0] = (res.data[0] ^ 1) & 0xFF;
@@ -937,7 +976,7 @@
     if (targetWin.AudioBuffer) {
       const origGetChannelData = targetWin.AudioBuffer.prototype.getChannelData;
       targetWin.AudioBuffer.prototype.getChannelData = function (channel) {
-        recordProbe('audio');
+        recordProbe('audio', 'AudioBuffer.getChannelData() micro-noise');
         const data = origGetChannelData.apply(this, arguments);
         if (data && data.length > 0) {
           data[0] += (Math.random() - 0.5) * 0.00000001;
@@ -950,7 +989,7 @@
       const origGetFloatFreq = targetWin.AnalyserNode.prototype.getFloatFrequencyData;
       if (origGetFloatFreq) {
         targetWin.AnalyserNode.prototype.getFloatFrequencyData = function (array) {
-          recordProbe('audio');
+          recordProbe('audio', 'AnalyserNode.getFloatFrequencyData() micro-noise');
           origGetFloatFreq.apply(this, arguments);
           if (array && array.length > 0) {
             array[0] += (Math.random() - 0.5) * 0.00001;
@@ -960,7 +999,7 @@
       const origGetByteFreq = targetWin.AnalyserNode.prototype.getByteFrequencyData;
       if (origGetByteFreq) {
         targetWin.AnalyserNode.prototype.getByteFrequencyData = function (array) {
-          recordProbe('audio');
+          recordProbe('audio', 'AnalyserNode.getByteFrequencyData() 1-bit noise');
           origGetByteFreq.apply(this, arguments);
           if (array && array.length > 0) {
             array[0] = (array[0] ^ 1) & 0xFF;
@@ -975,8 +1014,8 @@
         delete nav.brave;
         delete navProto.brave;
       } catch (e) {
-        overrideDynamicGetter(navProto, 'brave', () => undefined, 'brave');
-        overrideDynamicGetter(nav, 'brave', () => undefined, 'brave');
+        overrideDynamicGetter(navProto, 'brave', () => undefined, 'brave', 'navigator.brave');
+        overrideDynamicGetter(nav, 'brave', () => undefined, 'brave', 'navigator.brave');
       }
     }
   }
