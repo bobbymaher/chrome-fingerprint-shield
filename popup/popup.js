@@ -83,11 +83,16 @@ document.addEventListener('DOMContentLoaded', () => {
           probeDomainText.textContent = activeTab.url || 'Active Tab';
         }
 
-        chrome.runtime.sendMessage({ type: 'GET_TAB_PROBE_STATS', tabId: activeTab.id }, (response) => {
+        chrome.runtime.sendMessage({ type: '__GET_TAB_PROBE_STATS__', tabId: activeTab.id }, (response) => {
           if (response && response.stats) {
             renderProbeStats(response.stats);
           } else {
-            renderProbeStats({ userAgent: 0, plugins: 0, hardware: 0, userAgentData: 0, webgl: 0, canvas: 0, audio: 0, screen: 0, brave: 0, battery: 0, fonts: 0, total: 0 });
+            renderProbeStats({
+              userAgent: 0, userAgentData: 0, fonts: 0, canvas: 0, webgl: 0,
+              hardware: 0, battery: 0, timezone: 0, speech: 0, topics: 0,
+              domrect: 0, svgrect: 0, webrtc: 0, peripherals: 0, storage: 0,
+              beacons: 0, plugins: 0, total: 0
+            });
           }
         });
       }
@@ -95,16 +100,25 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function renderProbeStats(stats) {
-    probeTotalBadge.textContent = `${stats.total || 0} Probes`;
+    probeTotalBadge.textContent = `${stats.total || 0} Probes Intercepted`;
 
     const categoryMap = [
       { key: 'userAgent', label: 'User-Agent / OS', icon: '👤' },
       { key: 'userAgentData', label: 'Client Hints', icon: '🏷️' },
       { key: 'fonts', label: 'Font Availability', icon: '🔤' },
-      { key: 'canvas', label: 'Canvas 2D Render', icon: '🎨' },
-      { key: 'webgl', label: 'WebGL GPU String', icon: '🎮' },
+      { key: 'canvas', label: 'Canvas 2D Noise', icon: '🎨' },
+      { key: 'webgl', label: 'WebGL & WebGPU', icon: '🎮' },
       { key: 'hardware', label: 'Hardware Cores/RAM', icon: '💻' },
       { key: 'battery', label: 'Battery Status API', icon: '🔋' },
+      { key: 'timezone', label: 'Timezone Anonymizer', icon: '🌐' },
+      { key: 'speech', label: 'Speech Voices', icon: '🗣️' },
+      { key: 'topics', label: 'Topics API Shield', icon: '🎯' },
+      { key: 'domrect', label: 'Sub-Pixel DOMRect', icon: '📐' },
+      { key: 'svgrect', label: 'SVGRect Geometry', icon: '📊' },
+      { key: 'webrtc', label: 'WebRTC LAN Scrub', icon: '🔒' },
+      { key: 'peripherals', label: 'HID/USB/Gamepad', icon: '🕹️' },
+      { key: 'storage', label: 'Storage Quota API', icon: '💾' },
+      { key: 'beacons', label: 'Tracking Beacons', icon: '📡' },
       { key: 'plugins', label: 'Plugins Array', icon: '🔌' }
     ];
 
@@ -255,78 +269,56 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function renderPreview() {
-    const active = state.profiles[state.activeProfile];
-    if (!active) return;
+    const p = state.profiles[state.activeProfile];
+    if (!p) return;
 
-    if (state.isEnabled) {
-      previewStatusBadge.textContent = state.autoMode !== 'OFF' ? `ACTIVE (${state.autoMode})` : 'ACTIVE';
-      previewStatusBadge.className = 'status-badge active-status-badge';
-    } else {
-      previewStatusBadge.textContent = 'DISABLED';
-      previewStatusBadge.className = 'status-badge disabled-status-badge';
-    }
+    previewStatusBadge.textContent = state.isEnabled ? 'SHIELD ACTIVE' : 'SHIELD DISABLED';
+    previewStatusBadge.className = `status-badge ${state.isEnabled ? 'active-status-badge' : 'disabled-status-badge'}`;
 
-    const brandsStr = (active.brands || []).map(b => `"${b.brand}";v="${b.version}"`).join(', ');
-    const headersText = [
-      `User-Agent: ${active.userAgent}`,
-      `Sec-Ch-Ua: ${brandsStr}`,
-      `Sec-Ch-Ua-Mobile: ?0`,
-      `Sec-Ch-Ua-Platform: "${active.platformName || 'Windows'}"`,
-      `Sec-Ch-Ua-Platform-Version: "${active.platformVersion || '10.0.0'}"`,
-      `Sec-Ch-Ua-Arch: "${active.architecture || 'x86'}"`,
-      `Sec-Ch-Ua-Bitness: "${active.bitness || '64'}"`
-    ].join('\n');
+    httpHeadersPreview.textContent = JSON.stringify({
+      "User-Agent": p.userAgent,
+      "Sec-Ch-Ua": formatBrands(p.brands),
+      "Sec-Ch-Ua-Mobile": "?0",
+      "Sec-Ch-Ua-Platform": `"${p.platformName || 'Windows'}"`,
+      "Sec-Ch-Ua-Platform-Version": `"${p.platformVersion || '10.0.0'}"`,
+      "Sec-Ch-Ua-Arch": `"${p.architecture || 'x86'}"`,
+      "Sec-Ch-Ua-Bitness": `"${p.bitness || '64'}"`
+    }, null, 2);
 
-    httpHeadersPreview.textContent = headersText;
+    jsNavigatorPreview.textContent = JSON.stringify({
+      "navigator.userAgent": p.userAgent,
+      "navigator.platform": p.platform || "Win32",
+      "navigator.vendor": p.vendor || "Google Inc.",
+      "navigator.hardwareConcurrency": p.hardwareConcurrency || 4,
+      "navigator.deviceMemory": p.deviceMemory || 4,
+      "WebGL UNMASKED_VENDOR": p.webglVendor || "Google Inc. (Intel)",
+      "WebGL UNMASKED_RENDERER": p.webglRenderer || "ANGLE (Intel, Intel(R) HD Graphics 620 Direct3D11...)",
+      "Storage Quota API": "100 GB (Fixed)"
+    }, null, 2);
 
-    const navText = [
-      `navigator.userAgent = "${active.userAgent}"`,
-      `navigator.platform = "${active.platform}"`,
-      `navigator.vendor = "${active.vendor}"`,
-      `navigator.hardwareConcurrency = ${active.hardwareConcurrency}`,
-      `navigator.deviceMemory = ${active.deviceMemory}`,
-      `navigator.getBattery() = Spoofed AC Desktop (level: 1.0, charging: true)`,
-      `navigator.maxTouchPoints = ${active.maxTouchPoints}`,
-      `navigator.userAgentData.platform = "${active.platformName}"`,
-      `navigator.userAgentData.getHighEntropyValues() ->`,
-      `  platformVersion: "${active.platformVersion}"`,
-      `  architecture: "${active.architecture}"`,
-      `  bitness: "${active.bitness}"`,
-      `WebGL UNMASKED_VENDOR = "${active.webglVendor}"`,
-      `WebGL UNMASKED_RENDERER = "${active.webglRenderer}"`,
-      `Advanced WebGL Shield = ${active.spoofWebglAdvanced ? 'ENABLED' : 'DISABLED'}`,
-      `Mask Brave API = ${active.maskBrave ? 'ENABLED' : 'DISABLED'}`,
-      `Micro Beacons Blocker = ${active.blockBeacons ? 'ENABLED' : 'DISABLED'}`
-    ].join('\n');
-
-    jsNavigatorPreview.textContent = navText;
-
-    const fpjsText = [
-      `[+] Font Availability Shield: ACTIVE (Commonly UNUSED fonts randomly reported NOT installed)`,
-      `[+] Battery Status API Shield: ACTIVE (Spoofed plugged-in desktop AC power: 100%, charging)`,
-      `[+] Anti-Font Measurement Noise: ACTIVE (+/- 0.005px jitter on Canvas measureText)`,
-      `[+] 3rd-Party Domain Header Randomization: ACTIVE (CDNs & trackers receive randomized headers)`,
-      `[+] Advanced WebGL Shield: ${active.spoofWebglAdvanced ? 'ACTIVE (Windows D3D Extensions, Shader Precision & 3D Noise)' : 'DISABLED'}`,
-      `[+] Canvas 2D Noise Perturbation: ACTIVE (1-bit LSB shift on getImageData & toDataURL)`,
-      `[+] WebAudio Noise Injection: ACTIVE (1e-8 float jitter on getChannelData)`,
-      `[+] Micro Tracking Beacons Blocker: ${active.blockBeacons ? 'ACTIVE (Blocking <=4px images & <=30px tracking iframes)' : 'DISABLED'}`,
-      `[+] Screen Geometry Override: ${active.spoofScreen ? 'ACTIVE (1920x1080)' : 'DISABLED (Native Layout Preserved)'}`,
-      `[+] Language & Locale Masking: en-US, ["en-US", "en"]`,
-      `[+] Plugins & MimeTypes: Windows Standard PDF Viewer Array`,
-      `[+] Profile Switching Strategy: ${state.autoMode}`
-    ].join('\n');
-
-    fpjsShieldPreview.textContent = fpjsText;
+    fpjsShieldPreview.textContent = JSON.stringify({
+      "D3D Extensions Spoofing": p.spoofWebglAdvanced ? "Active" : "Disabled",
+      "Shader Comment Scrubbing": "Active",
+      "Canvas 2D & Audio Noise": "Active",
+      "Web Worker & ServiceWorker": "Active",
+      "Topics API Randomizer": "Active (629-topic taxonomy)",
+      "Same-Offset Timezone": "Active",
+      "Sub-Pixel DOMRect & SVGRect": "Active",
+      "WebRTC LAN IP Scrubbing": "Active",
+      "Peripheral Neutering": "Active",
+      "Brave Masking": p.maskBrave ? "Active" : "Disabled"
+    }, null, 2);
   }
 
   function openEditor(profileId) {
-    const p = state.profiles[profileId] || {};
-    editorTitle.textContent = profileId ? 'Edit Profile' : 'New Custom Profile';
-    editProfileId.value = profileId || '';
+    const p = state.profiles[profileId];
+    if (!p) return;
 
+    editorTitle.textContent = `Edit Profile: ${p.name}`;
+    editProfileId.value = profileId;
     editName.value = p.name || '';
     editDescription.value = p.description || '';
-    editUserAgent.value = p.userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36 Edg/150.0.0.0';
+    editUserAgent.value = p.userAgent || '';
     editPlatform.value = p.platform || 'Win32';
     editPlatformName.value = p.platformName || 'Windows';
     editPlatformVersion.value = p.platformVersion || '10.0.0';
@@ -334,7 +326,7 @@ document.addEventListener('DOMContentLoaded', () => {
     editCores.value = p.hardwareConcurrency || 4;
     editMemory.value = p.deviceMemory || 4;
     editWebglVendor.value = p.webglVendor || 'Google Inc. (Intel)';
-    editWebglRenderer.value = p.webglRenderer || 'ANGLE (Intel, Intel(R) HD Graphics 620 Direct3D11 vs_5_0 ps_5_0, D3D11-27.20.100.8681)';
+    editWebglRenderer.value = p.webglRenderer || '';
     editSpoofWebglAdvanced.checked = p.spoofWebglAdvanced !== undefined ? p.spoofWebglAdvanced : true;
     editMaskBrave.checked = p.maskBrave !== undefined ? p.maskBrave : true;
     editBlockBeacons.checked = p.blockBeacons !== undefined ? p.blockBeacons : true;
@@ -343,61 +335,33 @@ document.addEventListener('DOMContentLoaded', () => {
     switchTab('tab-editor');
   }
 
-  btnNewProfile.addEventListener('click', () => openEditor(''));
-  btnCancelEdit.addEventListener('click', () => switchTab('tab-profiles'));
+  btnNewProfile.addEventListener('click', () => {
+    editorTitle.textContent = 'Create New Custom Profile';
+    editProfileId.value = '';
+    profileForm.reset();
+    editPlatform.value = 'Win32';
+    editPlatformName.value = 'Windows';
+    editPlatformVersion.value = '10.0.0';
+    editVendor.value = 'Google Inc.';
+    editCores.value = 4;
+    editMemory.value = 4;
+    editSpoofWebglAdvanced.checked = true;
+    editMaskBrave.checked = true;
+    editBlockBeacons.checked = true;
+    editSpoofScreen.checked = false;
 
-  function duplicateProfile(profileId) {
-    const orig = state.profiles[profileId];
-    if (!orig) return;
+    switchTab('tab-editor');
+  });
 
-    const newId = 'custom_' + Date.now();
-    const dup = JSON.parse(JSON.stringify(orig));
-    dup.id = newId;
-    dup.name = `${orig.name} (Copy)`;
-    dup.custom = true;
-
-    state.profiles[newId] = dup;
-    state.activeProfile = newId;
-    saveState(() => switchTab('tab-profiles'));
-  }
-
-  function deleteProfile(profileId) {
-    if (!state.profiles[profileId] || !state.profiles[profileId].custom) return;
-
-    delete state.profiles[profileId];
-    if (state.activeProfile === profileId) {
-      state.activeProfile = 'cheap_win10_edge';
-    }
-
-    saveState();
-  }
+  btnCancelEdit.addEventListener('click', () => {
+    switchTab('tab-profiles');
+  });
 
   profileForm.addEventListener('submit', (e) => {
     e.preventDefault();
+    const id = editProfileId.value || `custom_${Date.now()}`;
 
-    let id = editProfileId.value;
-    const isNew = !id;
-    if (isNew) id = 'custom_' + Date.now();
-
-    const ua = editUserAgent.value;
-    let brands = [
-      { brand: "Not:A-Brand", version: "24" },
-      { brand: "Chromium", version: "150" }
-    ];
-    let fullVersions = [
-      { brand: "Not:A-Brand", version: "24.0.0.0" },
-      { brand: "Chromium", version: "150.0.7100.25" }
-    ];
-
-    if (ua.includes('Edg/')) {
-      brands.push({ brand: "Microsoft Edge", version: "150" });
-      fullVersions.push({ brand: "Microsoft Edge", version: "150.0.3200.12" });
-    } else {
-      brands.push({ brand: "Google Chrome", version: "150" });
-      fullVersions.push({ brand: "Google Chrome", version: "150.0.7100.25" });
-    }
-
-    const updatedProfile = {
+    state.profiles[id] = {
       id: id,
       name: editName.value,
       description: editDescription.value,
@@ -405,16 +369,9 @@ document.addEventListener('DOMContentLoaded', () => {
       platform: editPlatform.value,
       platformName: editPlatformName.value,
       platformVersion: editPlatformVersion.value,
-      architecture: 'x86',
-      bitness: '64',
-      model: '',
       vendor: editVendor.value,
-      oscpu: `${editPlatformName.value} NT 10.0; Win64; x64`,
-      brands: brands,
-      fullVersionList: fullVersions,
       hardwareConcurrency: parseInt(editCores.value, 10) || 4,
       deviceMemory: parseInt(editMemory.value, 10) || 4,
-      maxTouchPoints: 0,
       webglVendor: editWebglVendor.value,
       webglRenderer: editWebglRenderer.value,
       spoofWebglAdvanced: editSpoofWebglAdvanced.checked,
@@ -424,32 +381,52 @@ document.addEventListener('DOMContentLoaded', () => {
       custom: true
     };
 
-    state.profiles[id] = updatedProfile;
-    state.activeProfile = id;
-
-    saveState(() => switchTab('tab-profiles'));
+    saveState(() => {
+      switchTab('tab-profiles');
+    });
   });
 
-  btnResetDefaults.addEventListener('click', (e) => {
-    e.preventDefault();
-    if (confirm('Reset all profiles back to default settings?')) {
-      state.profiles = globalThis.DEFAULT_PROFILES;
-      state.activeProfile = 'cheap_win10_edge';
-      state.isEnabled = true;
-      state.autoMode = 'PER_SITE_3RD_RANDOM';
-      chrome.storage.local.set({ domainProfileMap: {} }, () => {
-        saveState();
-      });
+  function duplicateProfile(profileId) {
+    const orig = state.profiles[profileId];
+    if (!orig) return;
+
+    const newId = `custom_${Date.now()}`;
+    state.profiles[newId] = {
+      ...JSON.parse(JSON.stringify(orig)),
+      id: newId,
+      name: `${orig.name} (Copy)`,
+      custom: true
+    };
+
+    saveState();
+  }
+
+  function deleteProfile(profileId) {
+    if (confirm('Are you sure you want to delete this custom profile?')) {
+      delete state.profiles[profileId];
+      if (state.activeProfile === profileId) {
+        state.activeProfile = 'cheap_win10_edge';
+      }
+      saveState();
     }
-  });
+  }
+
+  function formatBrands(brands) {
+    if (!brands || !Array.isArray(brands)) return '"Not:A-Brand";v="24", "Chromium";v="150", "Microsoft Edge";v="150"';
+    return brands.map(b => `"${b.brand}";v="${b.version}"`).join(', ');
+  }
 
   function escapeHtml(str) {
+    if (!str) return '';
     return String(str)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
   }
+
+  // Auto-refresh probe stats every 1.5 seconds
+  setInterval(fetchProbeStats, 1500);
 
   loadState();
 });
