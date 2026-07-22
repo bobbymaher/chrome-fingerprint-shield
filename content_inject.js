@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  console.log('%c[Fingerprint Shield v1.8.0]%c Comprehensive Beacon Suite (sendBeacon, fetch keepalive, ping, pixels & iframes) initialized', 'color: #38bdf8; font-weight: bold;', 'color: #9ca3af;');
+  console.log('%c[Fingerprint Shield v1.9.0]%c Targeted AJAX Telemetry Endpoint Shield & Complete Privacy Suite initialized', 'color: #38bdf8; font-weight: bold;', 'color: #9ca3af;');
 
   let probeCounts = {
     userAgent: 0,
@@ -20,6 +20,7 @@
     topics: 0,
     domrect: 0,
     beacons: 0,
+    telemetry: 0,
     svgrect: 0,
     webrtc: 0,
     peripherals: 0,
@@ -42,7 +43,8 @@
     speech: '#f97316',
     svgrect: '#14b8a6',
     peripherals: '#64748b',
-    beacons: '#d946ef'
+    beacons: '#d946ef',
+    telemetry: '#f43f5e'
   };
 
   let probeLogCounts = {};
@@ -102,6 +104,31 @@
     } catch (err) {
     } finally {
       isRecordingProbe = false;
+    }
+  }
+
+  // Telemetry Path Pattern Matcher
+  const TELEMETRY_PATH_PATTERNS = [
+    /\/svc\/shreddit\/events/i,
+    /\/events(\?|\/|$)/i,
+    /\/telemetry(\?|\/|$)/i,
+    /\/analytics(\?|\/|$)/i,
+    /\/metrics(\?|\/|$)/i,
+    /\/perfMetrics(\?|\/|$)/i,
+    /\/log_event(\?|\/|$)/i,
+    /\/collect(\?|\/|$)/i,
+    /\/track(\?|\/|$)/i,
+    /\/beacon(\?|\/|$)/i,
+    /\/reporting(\?|\/|$)/i
+  ];
+
+  function isTelemetryUrl(urlStr) {
+    if (!urlStr || typeof urlStr !== 'string') return false;
+    try {
+      const url = new URL(urlStr, window.location.href);
+      return TELEMETRY_PATH_PATTERNS.some(pattern => pattern.test(url.pathname));
+    } catch(e) {
+      return TELEMETRY_PATH_PATTERNS.some(pattern => pattern.test(urlStr));
     }
   }
 
@@ -616,8 +643,9 @@
     if (!nav) return;
     const navProto = Object.getPrototypeOf(nav) || targetWin.Navigator?.prototype || nav;
 
-    // 4. BEACON SUITE INTERCEPTION (sendBeacon, fetch keepalive, ping, pixels & iframes)
+    // 4. BEACON SUITE & TARGETED TELEMETRY ENDPOINT INTERCEPTION
     if (nav.sendBeacon) {
+      const origSendBeacon = nav.sendBeacon;
       nav.sendBeacon = function (url, data) {
         let inspectObj = null;
         if (data) {
@@ -644,29 +672,83 @@
         }
 
         recordProbe('beacons', `sendBeacon("${url}") -> ALLOWED (Same-Origin)`, inspectObj);
-        return nav.sendBeacon ? origSendBeacon.apply(this, arguments) : true;
+        return origSendBeacon.apply(this, arguments);
       };
     }
 
-    // fetch() keepalive tracking beacon interception
+    // fetch() Targeted Telemetry Path & keepalive Interception
     if (targetWin.fetch) {
       const origFetch = targetWin.fetch;
       targetWin.fetch = function (resource, config) {
-        if (config && config.keepalive === true) {
-          const urlStr = typeof resource === 'string' ? resource : (resource && resource.url ? resource.url : '');
-          let isThirdParty = false;
-          try {
-            const targetUrl = new URL(urlStr, targetWin.location.href);
-            isThirdParty = targetUrl.hostname !== targetWin.location.hostname;
-          } catch(e) {}
+        const urlStr = typeof resource === 'string' ? resource : (resource && resource.url ? resource.url : '');
+        const isKeepalive = config && config.keepalive === true;
+        const isTelemetry = isTelemetryUrl(urlStr);
 
-          const blockSameOrigin = activeProfile.blockSameOriginBeacons !== false;
-          if (isThirdParty || blockSameOrigin) {
-            recordProbe('beacons', `fetch(keepalive: true, "${urlStr}") -> BLOCKED (Telemetry Fetch Beacon)`, config.body);
-            return Promise.resolve(new Response('', { status: 200, statusText: 'OK' }));
+        if (isKeepalive || isTelemetry) {
+          let inspectObj = null;
+          if (config && config.body) {
+            try {
+              if (typeof config.body === 'string') inspectObj = JSON.parse(config.body);
+              else inspectObj = config.body;
+            } catch(e) {
+              inspectObj = String(config.body);
+            }
           }
+
+          const category = isTelemetry ? 'telemetry' : 'beacons';
+          const label = isTelemetry ? 'AJAX Telemetry Path Muted' : 'Telemetry Fetch Beacon';
+          recordProbe(category, `fetch("${urlStr}") -> BLOCKED (${label})`, inspectObj);
+
+          return Promise.resolve(new Response(JSON.stringify({ status: "ok", success: true }), {
+            status: 200,
+            statusText: 'OK',
+            headers: { 'Content-Type': 'application/json' }
+          }));
         }
+
         return origFetch.apply(this, arguments);
+      };
+    }
+
+    // XMLHttpRequest Targeted Telemetry Path Interception
+    if (targetWin.XMLHttpRequest) {
+      const origOpen = targetWin.XMLHttpRequest.prototype.open;
+      const origSend = targetWin.XMLHttpRequest.prototype.send;
+
+      targetWin.XMLHttpRequest.prototype.open = function (method, url) {
+        this.__SHIELD_URL__ = url;
+        this.__IS_TELEMETRY__ = isTelemetryUrl(url);
+        return origOpen.apply(this, arguments);
+      };
+
+      targetWin.XMLHttpRequest.prototype.send = function (body) {
+        if (this.__IS_TELEMETRY__) {
+          const urlStr = this.__SHIELD_URL__ || '';
+          let inspectObj = null;
+          if (body) {
+            try {
+              if (typeof body === 'string') inspectObj = JSON.parse(body);
+              else inspectObj = body;
+            } catch(e) {
+              inspectObj = String(body);
+            }
+          }
+
+          recordProbe('telemetry', `XHR("${urlStr}") -> BLOCKED (AJAX Telemetry Path Muted)`, inspectObj);
+
+          Object.defineProperty(this, 'readyState', { value: 4, configurable: true });
+          Object.defineProperty(this, 'status', { value: 200, configurable: true });
+          Object.defineProperty(this, 'responseText', { value: '{"status":"ok"}', configurable: true });
+
+          if (typeof this.onreadystatechange === 'function') {
+            try { this.onreadystatechange(); } catch(e) {}
+          }
+          if (typeof this.onload === 'function') {
+            try { this.onload(); } catch(e) {}
+          }
+          return;
+        }
+        return origSend.apply(this, arguments);
       };
     }
 

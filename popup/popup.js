@@ -23,7 +23,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const fpjsShieldPreview = document.getElementById('fpjsShieldPreview');
   const previewStatusBadge = document.getElementById('previewStatusBadge');
   const btnNewProfile = document.getElementById('btnNewProfile');
-  const btnResetDefaults = document.getElementById('btnResetDefaults');
   const btnCancelEdit = document.getElementById('btnCancelEdit');
 
   // Probe Monitor Elements
@@ -94,7 +93,7 @@ document.addEventListener('DOMContentLoaded', () => {
               userAgent: 0, userAgentData: 0, fonts: 0, canvas: 0, webgl: 0,
               hardware: 0, battery: 0, timezone: 0, speech: 0, topics: 0,
               domrect: 0, svgrect: 0, webrtc: 0, peripherals: 0, storage: 0,
-              beacons: 0, plugins: 0, total: 0
+              beacons: 0, telemetry: 0, plugins: 0, total: 0
             });
           }
         });
@@ -122,6 +121,7 @@ document.addEventListener('DOMContentLoaded', () => {
       { key: 'peripherals', label: 'HID/USB/Gamepad', icon: '🕹️' },
       { key: 'storage', label: 'Storage Quota API', icon: '💾' },
       { key: 'beacons', label: 'Tracking Beacons', icon: '📡' },
+      { key: 'telemetry', label: 'AJAX Telemetry Path', icon: '🛑' },
       { key: 'plugins', label: 'Plugins Array', icon: '🔌' }
     ];
 
@@ -316,6 +316,7 @@ document.addEventListener('DOMContentLoaded', () => {
       "Sub-Pixel DOMRect & SVGRect": "Active",
       "WebRTC LAN IP Scrubbing": "Active",
       "Peripheral Neutering": "Active",
+      "AJAX Telemetry Path Shield": "Active (/events, /telemetry, /analytics, /metrics)",
       "3rd-Party Beacons Block": p.blockBeacons ? "Active" : "Disabled",
       "1st-Party Beacons Block": p.blockSameOriginBeacons !== false ? "Active" : "Disabled",
       "Brave Masking": p.maskBrave ? "Active" : "Disabled"
