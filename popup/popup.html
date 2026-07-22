@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Header & Fingerprint Shield</title>
+  <link rel="stylesheet" href="popup.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="logo-icon">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            <path d="m9 12 2 2 4-4"/>
+          </svg>
+        </div>
+        <div>
+          <h1>Fingerprint Shield</h1>
+          <span class="version-tag">Brave & Chromium</span>
+        </div>
+      </div>
+      <div class="toggle-container">
+        <label class="switch">
+          <input type="checkbox" id="enableToggle" checked>
+          <span class="slider round"></span>
+        </label>
+      </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <nav class="nav-tabs">
+      <button class="nav-btn active" data-tab="tab-profiles">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        Profiles
+      </button>
+      <button class="nav-btn" data-tab="tab-config">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        Config
+      </button>
+      <button class="nav-btn" data-tab="tab-preview">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
+        Preview
+      </button>
+      <button class="nav-btn" data-tab="tab-editor" id="btnTabEditor">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+        Edit / Add
+      </button>
+    </nav>
+
+    <!-- Main Content Area -->
+    <main class="content-area">
+      <!-- TAB 1: PROFILES -->
+      <section id="tab-profiles" class="tab-content active">
+        <!-- Live Page Probe Activity Monitor Card -->
+        <div class="probe-card">
+          <div class="probe-card-header">
+            <div class="probe-title-group">
+              <span class="probe-icon">🔍</span>
+              <div>
+                <span class="probe-title">Page Probe Activity</span>
+                <span class="probe-subtitle" id="probeDomainText">Current Active Tab</span>
+              </div>
+            </div>
+            <span class="probe-badge" id="probeTotalBadge">0 Probes Intercepted</span>
+          </div>
+          <div class="probe-grid" id="probeGridList">
+            <!-- Intercepted probe stats -->
+          </div>
+        </div>
+
+        <div class="section-header">
+          <h2>Identity Profiles</h2>
+          <button class="btn btn-secondary btn-sm" id="btnNewProfile">+ New Custom</button>
+        </div>
+        <div class="profiles-list" id="profilesList">
+          <!-- Dynamically populated profile cards -->
+        </div>
+      </section>
+
+      <!-- TAB 2: CONFIG / SETTINGS -->
+      <section id="tab-config" class="tab-content">
+        <div class="section-header">
+          <h2>Global Shield Configuration</h2>
+        </div>
+
+        <div class="config-group">
+          <h3>Profile Switching Strategy</h3>
+          <div class="config-card">
+            <div class="form-group">
+              <label for="autoModeSelect">Randomization Strategy</label>
+              <select id="autoModeSelect" class="select-input">
+                <option value="PER_SITE_3RD_RANDOM">Sticky Site + Random 3rd-Party Trackers &amp; CDNs (Default)</option>
+                <option value="PER_SITE">Per-Site / Domain (Sticky for all requests)</option>
+                <option value="PER_NAVIGATION">Full Auto (Random per page load)</option>
+                <option value="OFF">Off — Use Selected Profile</option>
+              </select>
+              <span class="config-help">Sticky site keeps your login sessions intact, while 3rd-party CDNs &amp; trackers receive randomized identities.</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="config-group">
+          <h3>Tracking &amp; Privacy Controls</h3>
+          <div class="config-card">
+            <div class="toggle-row">
+              <div class="toggle-label">
+                <span class="toggle-title">Advanced WebGL Shield</span>
+                <span class="toggle-desc">Spoof D3D Extensions, Shader Precision &amp; 3D Noise</span>
+              </div>
+              <label class="switch switch-sm">
+                <input type="checkbox" id="configSpoofWebglAdvanced" checked>
+                <span class="slider round"></span>
+              </label>
+            </div>
+
+            <div class="toggle-row">
+              <div class="toggle-label">
+                <span class="toggle-title">Block Micro Tracking Beacons</span>
+                <span class="toggle-desc">Blocks &le;4px images (1x1 pixels) &amp; &le;30px tracking iframes</span>
+              </div>
+              <label class="switch switch-sm">
+                <input type="checkbox" id="configBlockBeacons" checked>
+                <span class="slider round"></span>
+              </label>
+            </div>
+
+            <div class="toggle-row">
+              <div class="toggle-label">
+                <span class="toggle-title">Override Screen Geometry</span>
+                <span class="toggle-desc">Force 1920x1080 screen width. <i>Disable if site layout breaks.</i></span>
+              </div>
+              <label class="switch switch-sm">
+                <input type="checkbox" id="configSpoofScreen">
+                <span class="slider round"></span>
+              </label>
+            </div>
+
+            <div class="toggle-row">
+              <div class="toggle-label">
+                <span class="toggle-title">Mask Brave Browser API</span>
+                <span class="toggle-desc">Hides <code>navigator.brave</code> to look like standard Edge/Chrome</span>
+              </div>
+              <label class="switch switch-sm">
+                <input type="checkbox" id="configMaskBrave" checked>
+                <span class="slider round"></span>
+              </label>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 3: LIVE PREVIEW -->
+      <section id="tab-preview" class="tab-content">
+        <div class="section-header">
+          <h2>Active Headers &amp; Fingerprint</h2>
+          <span class="status-badge active-status-badge" id="previewStatusBadge">ACTIVE</span>
+        </div>
+
+        <div class="preview-group">
+          <h3>HTTP Request Headers</h3>
+          <div class="code-block" id="httpHeadersPreview"></div>
+        </div>
+
+        <div class="preview-group">
+          <h3>JavaScript Navigator &amp; WebGL</h3>
+          <div class="code-block" id="jsNavigatorPreview"></div>
+        </div>
+
+        <div class="preview-group">
+          <h3>Anti-Fingerprint Countermeasures</h3>
+          <div class="code-block" id="fpjsShieldPreview"></div>
+        </div>
+      </section>
+
+      <!-- TAB 4: PROFILE EDITOR -->
+      <section id="tab-editor" class="tab-content">
+        <div class="section-header">
+          <h2 id="editorTitle">Edit Profile</h2>
+        </div>
+        <form id="profileForm" class="editor-form">
+          <input type="hidden" id="editProfileId" value="">
+
+          <div class="form-group">
+            <label for="editName">Profile Name</label>
+            <input type="text" id="editName" required placeholder="e.g. Cheap Windows 10 (Edge)">
+          </div>
+
+          <div class="form-group">
+            <label for="editDescription">Description</label>
+            <input type="text" id="editDescription" placeholder="Short description of this profile">
+          </div>
+
+          <div class="form-group">
+            <label for="editUserAgent">User-Agent String</label>
+            <textarea id="editUserAgent" rows="3" required></textarea>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group col-6">
+              <label for="editPlatform">JS navigator.platform</label>
+              <input type="text" id="editPlatform" required value="Win32">
+            </div>
+            <div class="form-group col-6">
+              <label for="editPlatformName">Sec-Ch-Ua-Platform</label>
+              <input type="text" id="editPlatformName" required value="Windows">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group col-6">
+              <label for="editPlatformVersion">Sec-Ch-Ua-Platform-Version</label>
+              <input type="text" id="editPlatformVersion" required value="10.0.0">
+            </div>
+            <div class="form-group col-6">
+              <label for="editVendor">navigator.vendor</label>
+              <input type="text" id="editVendor" required value="Google Inc.">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group col-6">
+              <label for="editCores">CPU Cores (concurrency)</label>
+              <input type="number" id="editCores" min="1" max="64" value="4">
+            </div>
+            <div class="form-group col-6">
+              <label for="editMemory">RAM Memory (GB)</label>
+              <input type="number" id="editMemory" min="1" max="128" value="4">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="editWebglVendor">WebGL Vendor (UNMASKED)</label>
+            <input type="text" id="editWebglVendor" value="Google Inc. (Intel)">
+          </div>
+
+          <div class="form-group">
+            <label for="editWebglRenderer">WebGL Renderer (UNMASKED)</label>
+            <input type="text" id="editWebglRenderer" value="ANGLE (Intel, Intel(R) HD Graphics 620 Direct3D11 vs_5_0 ps_5_0, D3D11-27.20.100.8681)">
+          </div>
+
+          <div class="form-checkbox">
+            <input type="checkbox" id="editSpoofWebglAdvanced" checked>
+            <label for="editSpoofWebglAdvanced">Advanced WebGL Shield (Extensions List, Shader Precision, readPixels Noise)</label>
+          </div>
+
+          <div class="form-checkbox">
+            <input type="checkbox" id="editMaskBrave" checked>
+            <label for="editMaskBrave">Mask Brave Browser API (navigator.brave)</label>
+          </div>
+
+          <div class="form-checkbox">
+            <input type="checkbox" id="editBlockBeacons" checked>
+            <label for="editBlockBeacons">Block Micro Tracking Pixels (&le;4px) &amp; iFrames (&le;30px)</label>
+          </div>
+
+          <div class="form-checkbox">
+            <input type="checkbox" id="editSpoofScreen">
+            <label for="editSpoofScreen">Override Screen Geometry (1920x1080)</label>
+          </div>
+
+          <div class="form-actions">
+            <button type="button" class="btn btn-secondary" id="btnCancelEdit">Cancel</button>
+            <button type="submit" class="btn btn-primary">Save Profile</button>
+          </div>
+        </form>
+      </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <span>Zero-Tracking Privacy Shield</span>
+      <a href="#" id="btnResetDefaults" class="reset-link">Reset Defaults</a>
+    </footer>
+  </div>
+
+  <script src="../profiles.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
