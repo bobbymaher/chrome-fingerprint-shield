@@ -135,7 +135,7 @@ function pickProfileForRotation(profiles, rotation, seedPrefix) {
   return profiles[keys[pick]];
 }
 
-async function updateDynamicRules(manualProfile, isEnabled, primaryRotation, thirdPartyRotation, profiles) {
+async function updateDynamicRules(manualProfile, isEnabled, primaryRotation, thirdPartyRotation, profiles, excludedDomains) {
   try {
     const existingRules = await chrome.declarativeNetRequest.getDynamicRules();
     const removeRuleIds = existingRules.map(r => r.id);
@@ -145,9 +145,8 @@ async function updateDynamicRules(manualProfile, isEnabled, primaryRotation, thi
       return;
     }
 
-    // "sticky" = whatever's manually selected in the Profiles tab, until
-    // changed. Anything faster overrides that with a time-bucket pick,
-    // site-wide (DNR can't vary this per visited domain - see note above).
+    const allExcludedDomains = Array.from(new Set([...(excludedDomains || []), ...BUILTIN_EXCLUDED_CHALLENGE_DOMAINS]));
+
     const profile = primaryRotation === 'sticky' || !primaryRotation
       ? manualProfile
       : pickProfileForRotation(profiles, primaryRotation, 'primary');
@@ -171,7 +170,19 @@ async function updateDynamicRules(manualProfile, isEnabled, primaryRotation, thi
       });
     }
 
-    // Rule 1: Default Header Override for ALL requests (including main_frame address bar navigation)
+    // Rule 1: Default Header Override for ALL requests except excluded domains
+    const firstPartyCondition = {
+      urlFilter: '*',
+      resourceTypes: [
+        'main_frame', 'sub_frame', 'stylesheet', 'script', 'image',
+        'font', 'object', 'xmlhttprequest', 'ping', 'csp_report',
+        'media', 'websocket', 'other'
+      ]
+    };
+    if (allExcludedDomains.length > 0) {
+      firstPartyCondition.excludedDomains = allExcludedDomains;
+    }
+
     const addRules = [
       {
         id: RULE_ID_FIRST_PARTY,
@@ -180,14 +191,7 @@ async function updateDynamicRules(manualProfile, isEnabled, primaryRotation, thi
           type: 'modifyHeaders',
           requestHeaders: firstPartyHeaders
         },
-        condition: {
-          urlFilter: '*',
-          resourceTypes: [
-            'main_frame', 'sub_frame', 'stylesheet', 'script', 'image',
-            'font', 'object', 'xmlhttprequest', 'ping', 'csp_report',
-            'media', 'websocket', 'other'
-          ]
-        }
+        condition: firstPartyCondition
       }
     ];
 
@@ -212,6 +216,19 @@ async function updateDynamicRules(manualProfile, isEnabled, primaryRotation, thi
       });
     }
 
+    const thirdPartyCondition = {
+      urlFilter: '*',
+      domainType: 'thirdParty',
+      resourceTypes: [
+        'main_frame', 'sub_frame', 'stylesheet', 'script', 'image',
+        'font', 'object', 'xmlhttprequest', 'ping', 'csp_report',
+        'media', 'websocket', 'other'
+      ]
+    };
+    if (allExcludedDomains.length > 0) {
+      thirdPartyCondition.excludedDomains = allExcludedDomains;
+    }
+
     addRules.push({
       id: RULE_ID_THIRD_PARTY,
       priority: 2,
@@ -219,19 +236,23 @@ async function updateDynamicRules(manualProfile, isEnabled, primaryRotation, thi
         type: 'modifyHeaders',
         requestHeaders: thirdPartyHeaders
       },
-      condition: {
-        urlFilter: '*',
-        domainType: 'thirdParty',
-        excludedDomains: BUILTIN_EXCLUDED_CHALLENGE_DOMAINS,
-        resourceTypes: [
-          'main_frame', 'sub_frame', 'stylesheet', 'script', 'image',
-          'font', 'object', 'xmlhttprequest', 'ping', 'csp_report',
-          'media', 'websocket', 'other'
-        ]
-      }
+      condition: thirdPartyCondition
     });
 
     // Rule 3: Third-Party Referer Trimming (Origin Only)
+    const refererCondition = {
+      urlFilter: '*',
+      domainType: 'thirdParty',
+      resourceTypes: [
+        'main_frame', 'sub_frame', 'stylesheet', 'script', 'image',
+        'font', 'object', 'xmlhttprequest', 'ping', 'csp_report',
+        'media', 'websocket', 'other'
+      ]
+    };
+    if (allExcludedDomains.length > 0) {
+      refererCondition.excludedDomains = allExcludedDomains;
+    }
+
     addRules.push({
       id: RULE_ID_REFERER_TRIM,
       priority: 3,
@@ -241,18 +262,18 @@ async function updateDynamicRules(manualProfile, isEnabled, primaryRotation, thi
           { header: 'Referer', operation: 'remove' }
         ]
       },
-      condition: {
-        urlFilter: '*',
-        domainType: 'thirdParty',
-        resourceTypes: [
-          'main_frame', 'sub_frame', 'stylesheet', 'script', 'image',
-          'font', 'object', 'xmlhttprequest', 'ping', 'csp_report',
-          'media', 'websocket', 'other'
-        ]
-      }
+      condition: refererCondition
     });
 
     // Rule 4: Clean URLs (URL Tracking Parameter Stripper)
+    const cleanUrlCondition = {
+      urlFilter: '*',
+      resourceTypes: ['main_frame', 'sub_frame']
+    };
+    if (allExcludedDomains.length > 0) {
+      cleanUrlCondition.excludedDomains = allExcludedDomains;
+    }
+
     addRules.push({
       id: RULE_ID_REMOVE_TRACKING_PARAMS,
       priority: 4,
@@ -269,10 +290,7 @@ async function updateDynamicRules(manualProfile, isEnabled, primaryRotation, thi
           }
         }
       },
-      condition: {
-        urlFilter: '*',
-        resourceTypes: ['main_frame', 'sub_frame']
-      }
+      condition: cleanUrlCondition
     });
 
     await chrome.declarativeNetRequest.updateDynamicRules({
@@ -291,19 +309,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message) return;
 
   if (message.type === 'SYNC_STATE') {
-    chrome.storage.local.get(['profiles', 'activeProfile', 'isEnabled', 'primaryRotation', 'thirdPartyRotation'], (data) => {
+    chrome.storage.local.get(['profiles', 'activeProfile', 'isEnabled', 'primaryRotation', 'thirdPartyRotation', 'excludedDomains'], (data) => {
       const profiles = data.profiles || buildAllProfiles(detectChromeVersion());
       const activeId = data.activeProfile || 'cheap_win10_edge';
       const profile = profiles[activeId];
-      updateDynamicRules(profile, data.isEnabled, data.primaryRotation, data.thirdPartyRotation, profiles);
+      updateDynamicRules(profile, data.isEnabled, data.primaryRotation, data.thirdPartyRotation, profiles, data.excludedDomains || []);
       sendResponse({ status: 'OK' });
     });
     return true;
   }
 
   if (message.type === 'SYNC_EXCLUDED_SITES') {
-    chrome.storage.local.get(['excludedDomains'], (data) => {
-      registerShieldScripts(data.excludedDomains || []).then(() => {
+    chrome.storage.local.get(['excludedDomains', 'profiles', 'activeProfile', 'isEnabled', 'primaryRotation', 'thirdPartyRotation'], (data) => {
+      const excludedDomains = data.excludedDomains || [];
+      registerShieldScripts(excludedDomains).then(() => {
+        const profiles = data.profiles || buildAllProfiles(detectChromeVersion());
+        const activeId = data.activeProfile || 'cheap_win10_edge';
+        const profile = profiles[activeId];
+        updateDynamicRules(profile, data.isEnabled, data.primaryRotation, data.thirdPartyRotation, profiles, excludedDomains);
         sendResponse({ status: 'OK' });
       });
     });
@@ -360,7 +383,7 @@ function refreshBuiltInProfiles() {
       primaryRotation: primaryRotation,
       thirdPartyRotation: thirdPartyRotation
     }, () => {
-      updateDynamicRules(mergedProfiles[activeId] || mergedProfiles['cheap_win10_edge'], isEnabled, primaryRotation, thirdPartyRotation, mergedProfiles);
+      updateDynamicRules(mergedProfiles[activeId] || mergedProfiles['cheap_win10_edge'], isEnabled, primaryRotation, thirdPartyRotation, mergedProfiles, data.excludedDomains || []);
     });
 
     registerShieldScripts(data.excludedDomains || []);
