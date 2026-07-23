@@ -46,18 +46,24 @@
 
   // Resolves which profile applies for one hostname under one rotation
   // setting - shared logic for both the top frame and third-party frames,
-  // just called with a different hostname/setting/cache-key per frame kind.
-  function resolveProfileForHost(hostname, rotation, profileKeys, domainMap, cacheKey) {
+  // aligned with background.js declarativeNetRequest header rules.
+  function resolveProfileForHost(hostname, rotation, profileKeys, domainMap, cacheKey, activeProfileId, isTopFrame) {
     if (!hostname) return null;
+    if (isTopFrame) {
+      if (rotation === 'sticky' || !rotation) {
+        return { id: activeProfileId || 'cheap_win10_edge', domainMapChanged: false };
+      }
+      return { id: pickProfileForSeed(`primary|${getTimeBucket(rotation)}`, profileKeys), domainMapChanged: false };
+    }
     if (rotation === 'sticky') {
       if (domainMap[cacheKey] && profileKeys.includes(domainMap[cacheKey])) {
         return { id: domainMap[cacheKey], domainMapChanged: false };
       }
-      const id = pickProfileForSeed(`${hostname}|sticky`, profileKeys);
+      const id = pickProfileForSeed(`thirdparty:${hostname}|sticky`, profileKeys);
       domainMap[cacheKey] = id;
       return { id, domainMapChanged: true };
     }
-    return { id: pickProfileForSeed(`${hostname}|${getTimeBucket(rotation)}`, profileKeys), domainMapChanged: false };
+    return { id: pickProfileForSeed(`thirdparty:${hostname}|${getTimeBucket(rotation)}`, profileKeys), domainMapChanged: false };
   }
 
   // Listen for probe event emitted from MAIN world
@@ -93,7 +99,7 @@
     const cacheKey = (isTopFrame ? 'primary:' : 'thirdparty:') + hostname;
     const domainMap = data.domainProfileMap || {};
 
-    const resolved = resolveProfileForHost(hostname, rotation, profileKeys, domainMap, cacheKey);
+    const resolved = resolveProfileForHost(hostname, rotation, profileKeys, domainMap, cacheKey, data.activeProfile, isTopFrame);
     if (resolved) {
       selectedId = resolved.id;
       if (resolved.domainMapChanged) {
