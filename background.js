@@ -19,6 +19,31 @@ const BUILTIN_EXCLUDED_CHALLENGE_DOMAINS = [
   'recaptcha.net'
 ];
 
+// Helper to extract domain variants including root domain (e.g. "icabbi.com" from "nothingtoseehere.icabbi.com")
+function getDomainVariants(host) {
+  if (!host) return [];
+  const cleanHost = host.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+  if (!cleanHost) return [];
+  const variants = new Set([cleanHost]);
+
+  const parts = cleanHost.split('.');
+  if (parts.length > 2) {
+    const rootDomain = parts.slice(-2).join('.');
+    variants.add(rootDomain);
+  }
+
+  return Array.from(variants);
+}
+
+function expandAllExcludedDomains(excludedDomains) {
+  const rawList = [...(excludedDomains || []), ...BUILTIN_EXCLUDED_CHALLENGE_DOMAINS];
+  const expanded = new Set();
+  rawList.forEach((host) => {
+    getDomainVariants(host).forEach((v) => expanded.add(v));
+  });
+  return Array.from(expanded);
+}
+
 async function registerShieldScripts(excludedDomains) {
   try {
     const existing = await chrome.scripting.getRegisteredContentScripts({ ids: CONTENT_SCRIPT_IDS });
@@ -27,7 +52,7 @@ async function registerShieldScripts(excludedDomains) {
     }
   } catch (e) {}
 
-  const allExcluded = Array.from(new Set([...(excludedDomains || []), ...BUILTIN_EXCLUDED_CHALLENGE_DOMAINS]));
+  const allExcluded = expandAllExcludedDomains(excludedDomains);
   const excludeMatches = [];
   allExcluded.forEach((host) => {
     if (!host) return;
@@ -145,7 +170,7 @@ async function updateDynamicRules(manualProfile, isEnabled, primaryRotation, thi
       return;
     }
 
-    const allExcludedDomains = Array.from(new Set([...(excludedDomains || []), ...BUILTIN_EXCLUDED_CHALLENGE_DOMAINS]));
+    const allExcludedDomains = expandAllExcludedDomains(excludedDomains);
 
     const profile = primaryRotation === 'sticky' || !primaryRotation
       ? manualProfile
