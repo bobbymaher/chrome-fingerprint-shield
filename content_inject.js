@@ -1077,6 +1077,20 @@
     overridePrototypeGetter(navProto, 'deviceMemory', () => Math.min(8, activeProfile.deviceMemory || 4), 'hardware', 'deviceMemory');
     overridePrototypeGetter(navProto, 'maxTouchPoints', () => activeProfile.maxTouchPoints || 0, 'hardware', 'maxTouchPoints');
 
+    // Do Not Track (doNotTrack) Spoofing - deterministically tied to activeProfile
+    const profId = activeProfile.id || activeProfile.name || 'default';
+    const dntValue = activeProfile.doNotTrack !== undefined ? activeProfile.doNotTrack : (() => {
+      const hash = Math.abs(hashString(`${profId}|${window.location.hostname || ''}|dnt`));
+      return hash % 3 === 0 ? "1" : hash % 3 === 1 ? "0" : "unspecified";
+    })();
+
+    overridePrototypeGetter(navProto, 'doNotTrack', () => dntValue, 'userAgent', `navigator.doNotTrack [${dntValue}]`);
+    try {
+      if ('doNotTrack' in targetWin) {
+        overridePrototypeGetter(targetWin, 'doNotTrack', () => dntValue, 'userAgent', `window.doNotTrack [${dntValue}]`);
+      }
+    } catch (e) {}
+
     // Only mask navigator.brave if it actually exists (i.e. this really is
     // Brave). Without the 'in nav' guard this would manufacture the
     // property on vanilla Chrome, where it should never exist at all - the

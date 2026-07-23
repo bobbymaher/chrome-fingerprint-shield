@@ -9,6 +9,16 @@ importScripts('profiles.js');
 // so a soft "ask it nicely not to patch" approach can't work reliably here.
 const CONTENT_SCRIPT_IDS = ['shield-isolated', 'shield-inject'];
 
+// Built-in exclusion list for Cloudflare Turnstile, CAPTCHA, and challenge verification domains.
+// Scoped to challenge subframes and verification endpoints so anti-bot challenges run un-interfered.
+const BUILTIN_EXCLUDED_CHALLENGE_DOMAINS = [
+  'challenges.cloudflare.com',
+  'turnstile.cloudflare.com',
+  'cloudflarechallenge.com',
+  'hcaptcha.com',
+  'recaptcha.net'
+];
+
 async function registerShieldScripts(excludedDomains) {
   try {
     const existing = await chrome.scripting.getRegisteredContentScripts({ ids: CONTENT_SCRIPT_IDS });
@@ -17,8 +27,9 @@ async function registerShieldScripts(excludedDomains) {
     }
   } catch (e) {}
 
+  const allExcluded = Array.from(new Set([...(excludedDomains || []), ...BUILTIN_EXCLUDED_CHALLENGE_DOMAINS]));
   const excludeMatches = [];
-  (excludedDomains || []).forEach((host) => {
+  allExcluded.forEach((host) => {
     if (!host) return;
     excludeMatches.push(`*://${host}/*`);
     excludeMatches.push(`*://*.${host}/*`);
@@ -211,6 +222,7 @@ async function updateDynamicRules(manualProfile, isEnabled, primaryRotation, thi
       condition: {
         urlFilter: '*',
         domainType: 'thirdParty',
+        excludedDomains: BUILTIN_EXCLUDED_CHALLENGE_DOMAINS,
         resourceTypes: [
           'main_frame', 'sub_frame', 'stylesheet', 'script', 'image',
           'font', 'object', 'xmlhttprequest', 'ping', 'csp_report',
