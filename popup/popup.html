@@ -90,29 +90,28 @@
         </div>
 
         <div class="config-group">
-          <h3>Profile Switching Strategy</h3>
+          <h3>Profile Rotation</h3>
           <div class="config-card">
             <div class="form-group">
-              <label for="autoModeSelect">Randomization Strategy</label>
-              <select id="autoModeSelect" class="select-input">
-                <option value="PER_SITE_3RD_RANDOM">Sticky Site + Random 3rd-Party Trackers &amp; CDNs (Default)</option>
-                <option value="PER_SITE">Per-Site / Domain (Sticky for all requests)</option>
-                <option value="PER_NAVIGATION">Full Auto (Random per page load)</option>
-                <option value="OFF">Off — Use Selected Profile</option>
+              <label for="primaryRotationSelect">Primary Site Rotation</label>
+              <select id="primaryRotationSelect" class="select-input">
+                <option value="sticky">Sticky per domain (Default, safest for logins)</option>
+                <option value="daily">Rotate Daily</option>
+                <option value="hourly">Rotate Hourly</option>
+                <option value="insane">Insane Mode — Rotate Every Second</option>
               </select>
-              <span class="config-help">Sticky site keeps your login sessions intact, while 3rd-party CDNs &amp; trackers receive randomized identities.</span>
+              <span class="config-help">The identity the site you're actually visiting sees. <i>Faster than daily WILL break logged-in sessions, live WebSockets, and trigger login/CAPTCHA challenges on sites that check for a consistent fingerprint.</i></span>
             </div>
 
             <div class="form-group">
-              <label for="primaryRotationSelect">Primary Domain Rotation</label>
-              <select id="primaryRotationSelect" class="select-input">
-                <option value="off">Off — Sticky per domain (Default, safest for logins)</option>
-                <option value="daily">Rotate Daily</option>
+              <label for="thirdPartyRotationSelect">Third-Party Rotation</label>
+              <select id="thirdPartyRotationSelect" class="select-input">
+                <option value="sticky">Sticky per tracker/CDN domain</option>
+                <option value="daily">Rotate Daily (Default)</option>
                 <option value="hourly">Rotate Hourly</option>
-                <option value="minute">Rotate Every Minute</option>
-                <option value="second">Insane Mode — Rotate Every Second</option>
+                <option value="insane">Insane Mode — Rotate Every Second</option>
               </select>
-              <span class="config-help">Only applies under Per-Site strategies above. Rotates the identity a site itself sees, not just 3rd parties. <i>Faster than daily WILL break logged-in sessions, live WebSockets, and trigger login/CAPTCHA challenges on sites that check for a consistent fingerprint.</i></span>
+              <span class="config-help">The identity ad networks, CDNs, and trackers embedded on the page see - independent of the primary site above, and each distinct third-party domain gets its own identity rather than sharing one.</span>
             </div>
           </div>
         </div>

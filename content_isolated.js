@@ -1,13 +1,17 @@
 (function () {
   'use strict';
 
-  // Deterministic per-domain profile rotation. "off" keeps today's sticky
-  // behavior (one profile per domain forever, cached in domainProfileMap -
-  // needed so login sessions that bind to UA/fingerprint don't break mid-
-  // session). Faster intervals trade session stability for a moving
-  // fingerprint: "daily"/"hourly" are usually fine, "minute"/"second" WILL
-  // break sites that validate session continuity against UA/TLS-adjacent
-  // signals (expect surprise logouts, broken WebSockets, CAPTCHAs).
+  // Deterministic profile rotation, applied independently to the top-level
+  // site (primaryRotation) and to every embedded third-party frame
+  // (thirdPartyRotation, keyed to that frame's OWN hostname - so distinct
+  // trackers/CDNs get distinct, self-consistent identities instead of one
+  // shared blob). "sticky" keeps a profile forever once assigned (cached in
+  // domainProfileMap) - needed so login sessions that bind to UA/
+  // fingerprint don't break mid-session. Faster intervals trade session
+  // stability for a moving fingerprint: "daily"/"hourly" are usually fine,
+  // "insane" (reseeds every second - in practice a fresh pick on nearly
+  // every navigation too) WILL break sites that validate session
+  // continuity (expect surprise logouts, broken WebSockets, CAPTCHAs).
   function hashString(str) {
     let hash = 0;
     for (let i = 0; i < str.length; i++) {
@@ -31,14 +35,29 @@
     const y = now.getUTCFullYear(), mo = now.getUTCMonth(), d = now.getUTCDate();
     const h = now.getUTCHours(), mi = now.getUTCMinutes(), s = now.getUTCSeconds();
     if (granularity === 'hourly') return `${y}-${mo}-${d}-${h}`;
-    if (granularity === 'minute') return `${y}-${mo}-${d}-${h}-${mi}`;
-    if (granularity === 'second') return `${y}-${mo}-${d}-${h}-${mi}-${s}`;
+    if (granularity === 'insane') return `${y}-${mo}-${d}-${h}-${mi}-${s}`;
     return `${y}-${mo}-${d}`; // daily
   }
 
   function pickProfileForSeed(seedStr, profileKeys) {
     const rand = mulberry32(hashString(seedStr))();
     return profileKeys[Math.floor(rand * profileKeys.length)];
+  }
+
+  // Resolves which profile applies for one hostname under one rotation
+  // setting - shared logic for both the top frame and third-party frames,
+  // just called with a different hostname/setting/cache-key per frame kind.
+  function resolveProfileForHost(hostname, rotation, profileKeys, domainMap, cacheKey) {
+    if (!hostname) return null;
+    if (rotation === 'sticky') {
+      if (domainMap[cacheKey] && profileKeys.includes(domainMap[cacheKey])) {
+        return { id: domainMap[cacheKey], domainMapChanged: false };
+      }
+      const id = pickProfileForSeed(`${hostname}|sticky`, profileKeys);
+      domainMap[cacheKey] = id;
+      return { id, domainMapChanged: true };
+    }
+    return { id: pickProfileForSeed(`${hostname}|${getTimeBucket(rotation)}`, profileKeys), domainMapChanged: false };
   }
 
   // Listen for probe event emitted from MAIN world
@@ -54,39 +73,32 @@
     }
   });
 
-  chrome.storage.local.get(['activeProfile', 'profiles', 'isEnabled', 'autoMode', 'domainProfileMap', 'shieldWorkers', 'verboseLogging', 'primaryRotation'], function (data) {
+  chrome.storage.local.get(['activeProfile', 'profiles', 'isEnabled', 'domainProfileMap', 'shieldWorkers', 'verboseLogging', 'primaryRotation', 'thirdPartyRotation'], function (data) {
     if (data.isEnabled === false) return;
 
     const profiles = data.profiles || {};
-    const autoMode = data.autoMode || 'PER_SITE_3RD_RANDOM';
-    const primaryRotation = data.primaryRotation || 'off';
+    const primaryRotation = data.primaryRotation || 'sticky';
+    const thirdPartyRotation = data.thirdPartyRotation || 'daily';
     const profileKeys = Object.keys(profiles).sort();
 
     if (profileKeys.length === 0) return;
 
     let selectedId = data.activeProfile || 'cheap_win10_edge';
 
-    if (autoMode === 'PER_SITE' || autoMode === 'PER_SITE_3RD_RANDOM') {
-      const hostname = window.location.hostname;
+    let isTopFrame = true;
+    try { isTopFrame = window.self === window.top; } catch (e) { isTopFrame = false; }
 
-      if (primaryRotation !== 'off' && hostname) {
-        // Recomputed fresh every load, not cached: deterministic given
-        // (hostname, current time bucket), so it naturally stays the same
-        // within a bucket and changes once the bucket rolls over.
-        selectedId = pickProfileForSeed(`${hostname}|${getTimeBucket(primaryRotation)}`, profileKeys);
-      } else {
-        const domainMap = data.domainProfileMap || {};
-        if (domainMap[hostname] && profiles[domainMap[hostname]]) {
-          selectedId = domainMap[hostname];
-        } else if (hostname) {
-          selectedId = pickProfileForSeed(`${hostname}|sticky`, profileKeys);
-          domainMap[hostname] = selectedId;
-          chrome.storage.local.set({ domainProfileMap: domainMap });
-        }
+    const hostname = window.location.hostname;
+    const rotation = isTopFrame ? primaryRotation : thirdPartyRotation;
+    const cacheKey = (isTopFrame ? 'primary:' : 'thirdparty:') + hostname;
+    const domainMap = data.domainProfileMap || {};
+
+    const resolved = resolveProfileForHost(hostname, rotation, profileKeys, domainMap, cacheKey);
+    if (resolved) {
+      selectedId = resolved.id;
+      if (resolved.domainMapChanged) {
+        chrome.storage.local.set({ domainProfileMap: domainMap });
       }
-    } else if (autoMode === 'PER_NAVIGATION') {
-      const randIndex = Math.floor(Math.random() * profileKeys.length);
-      selectedId = profileKeys[randIndex];
     }
 
     const profile = profiles[selectedId] || profiles['cheap_win10_edge'];

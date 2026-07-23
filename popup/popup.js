@@ -11,17 +11,17 @@ document.addEventListener('DOMContentLoaded', () => {
     profiles: {},
     activeProfile: 'cheap_win10_edge',
     isEnabled: true,
-    autoMode: 'PER_SITE_3RD_RANDOM',
     shieldWorkers: true,
     verboseLogging: true,
     excludedDomains: [],
-    primaryRotation: 'off'
+    primaryRotation: 'sticky',
+    thirdPartyRotation: 'daily'
   };
 
   // DOM Elements
   const enableToggle = document.getElementById('enableToggle');
-  const autoModeSelect = document.getElementById('autoModeSelect');
   const primaryRotationSelect = document.getElementById('primaryRotationSelect');
+  const thirdPartyRotationSelect = document.getElementById('thirdPartyRotationSelect');
   const configSpoofWebglAdvanced = document.getElementById('configSpoofWebglAdvanced');
   const configBlockBeacons = document.getElementById('configBlockBeacons');
   const configBlockSameOriginBeacons = document.getElementById('configBlockSameOriginBeacons');
@@ -71,19 +71,19 @@ document.addEventListener('DOMContentLoaded', () => {
   const editSpoofScreen = document.getElementById('editSpoofScreen');
 
   function loadState() {
-    chrome.storage.local.get(['profiles', 'activeProfile', 'isEnabled', 'autoMode', 'shieldWorkers', 'verboseLogging', 'excludedDomains', 'primaryRotation'], (data) => {
+    chrome.storage.local.get(['profiles', 'activeProfile', 'isEnabled', 'shieldWorkers', 'verboseLogging', 'excludedDomains', 'primaryRotation', 'thirdPartyRotation'], (data) => {
       state.profiles = data.profiles || (typeof buildAllProfiles === 'function' ? buildAllProfiles(detectChromeVersion()) : {});
       state.activeProfile = data.activeProfile || 'cheap_win10_edge';
       state.isEnabled = data.isEnabled !== undefined ? data.isEnabled : true;
-      state.autoMode = data.autoMode || 'PER_SITE_3RD_RANDOM';
       state.shieldWorkers = data.shieldWorkers !== undefined ? data.shieldWorkers : true;
       state.verboseLogging = data.verboseLogging !== undefined ? data.verboseLogging : true;
       state.excludedDomains = data.excludedDomains || [];
-      state.primaryRotation = data.primaryRotation || 'off';
+      state.primaryRotation = data.primaryRotation || 'sticky';
+      state.thirdPartyRotation = data.thirdPartyRotation || 'daily';
 
       enableToggle.checked = state.isEnabled;
-      autoModeSelect.value = state.autoMode;
       primaryRotationSelect.value = state.primaryRotation;
+      thirdPartyRotationSelect.value = state.thirdPartyRotation;
       configShieldWorkers.checked = state.shieldWorkers;
       configVerboseLogging.checked = state.verboseLogging;
 
@@ -233,10 +233,10 @@ document.addEventListener('DOMContentLoaded', () => {
       profiles: state.profiles,
       activeProfile: state.activeProfile,
       isEnabled: state.isEnabled,
-      autoMode: state.autoMode,
       shieldWorkers: state.shieldWorkers,
       verboseLogging: state.verboseLogging,
-      primaryRotation: state.primaryRotation
+      primaryRotation: state.primaryRotation,
+      thirdPartyRotation: state.thirdPartyRotation
     }, () => {
       chrome.runtime.sendMessage({ type: 'SYNC_STATE' }, () => {
         renderProfiles();
@@ -267,20 +267,27 @@ document.addEventListener('DOMContentLoaded', () => {
     saveState();
   });
 
-  autoModeSelect.addEventListener('change', (e) => {
-    state.autoMode = e.target.value;
-    saveState();
-  });
+  function confirmInsane(selectEl, currentValue) {
+    if (!confirm(
+      'Rotating faster than daily WILL break logged-in sessions on most sites - expect surprise logouts, dead WebSockets, and login/CAPTCHA challenges anywhere that checks for a consistent browser fingerprint.\n\nContinue anyway?'
+    )) {
+      selectEl.value = currentValue;
+      return false;
+    }
+    return true;
+  }
 
   primaryRotationSelect.addEventListener('change', (e) => {
     const value = e.target.value;
-    if ((value === 'minute' || value === 'second') && !confirm(
-      'Rotating faster than daily WILL break logged-in sessions on most sites - expect surprise logouts, dead WebSockets, and login/CAPTCHA challenges anywhere that checks for a consistent browser fingerprint.\n\nContinue anyway?'
-    )) {
-      primaryRotationSelect.value = state.primaryRotation;
-      return;
-    }
+    if (value === 'insane' && !confirmInsane(primaryRotationSelect, state.primaryRotation)) return;
     state.primaryRotation = value;
+    saveState();
+  });
+
+  thirdPartyRotationSelect.addEventListener('change', (e) => {
+    const value = e.target.value;
+    if (value === 'insane' && !confirmInsane(thirdPartyRotationSelect, state.thirdPartyRotation)) return;
+    state.thirdPartyRotation = value;
     saveState();
   });
 

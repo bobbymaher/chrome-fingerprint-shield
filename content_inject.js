@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  console.log('%c[Fingerprint Shield v2.10.0]%c Hardened Anti-Detection & Realm Isolation Suite initialized', 'color: #38bdf8; font-weight: bold;', 'color: #9ca3af;');
+  console.log('%c[Fingerprint Shield v2.11.0]%c Hardened Anti-Detection & Realm Isolation Suite initialized', 'color: #38bdf8; font-weight: bold;', 'color: #9ca3af;');
 
   let probeCounts = {
     userAgent: 0,
@@ -339,35 +339,65 @@
     })();\n`;
   }
 
-  // Same-Offset IANA Timezone Database
-  const TIMEZONE_OFFSET_GROUPS = {
-    "Europe/Athens": ["Europe/Helsinki", "Europe/Bucharest", "Europe/Sofia", "Europe/Tallinn", "Europe/Riga", "Europe/Vilnius", "Europe/Istanbul", "Europe/Moscow", "Asia/Riyadh", "Africa/Nairobi"],
-    "Europe/Helsinki": ["Europe/Athens", "Europe/Bucharest", "Europe/Sofia", "Europe/Tallinn", "Europe/Riga", "Europe/Vilnius", "Europe/Istanbul", "Europe/Moscow"],
-    "Europe/Moscow": ["Europe/Athens", "Europe/Helsinki", "Europe/Bucharest", "Asia/Riyadh", "Africa/Nairobi"],
-    "Europe/Berlin": ["Europe/Paris", "Europe/Rome", "Europe/Madrid", "Europe/Amsterdam", "Europe/Brussels", "Europe/Vienna", "Europe/Warsaw", "Europe/Stockholm", "Europe/Oslo"],
-    "Europe/Paris": ["Europe/Berlin", "Europe/Rome", "Europe/Madrid", "Europe/Amsterdam", "Europe/Brussels", "Europe/Vienna", "Europe/Stockholm"],
-    "Europe/London": ["Europe/Dublin", "Europe/Lisbon", "Atlantic/Canary"],
-    "America/New_York": ["America/Toronto", "America/Detroit", "America/Kentucky/Louisville", "America/Indiana/Indianapolis"],
-    "America/Los_Angeles": ["America/Vancouver", "America/Tijuana"],
-    "Asia/Singapore": ["Asia/Hong_Kong", "Asia/Taipei", "Australia/Perth", "Asia/Manila"],
-    "Asia/Tokyo": ["Asia/Seoul"]
+  // Universal IANA Timezone Database grouped by UTC offset (in minutes)
+  const TIMEZONES_BY_OFFSET = {
+    "-720": ["Etc/GMT+12"],
+    "-660": ["Pacific/Honolulu"],
+    "-600": ["Pacific/Honolulu", "Pacific/Rarotonga"],
+    "-540": ["America/Anchorage", "America/Juneau"],
+    "-480": ["America/Los_Angeles", "America/Vancouver", "America/Tijuana"],
+    "-420": ["America/Denver", "America/Phoenix", "America/Edmonton"],
+    "-360": ["America/Chicago", "America/Mexico_City", "America/Winnipeg", "America/Guatemala"],
+    "-300": ["America/New_York", "America/Toronto", "America/Detroit", "America/Kentucky/Louisville", "America/Indiana/Indianapolis", "America/Bogota", "America/Lima"],
+    "-240": ["America/Halifax", "America/Caracas", "America/Santiago", "America/La_Paz"],
+    "-210": ["America/St_Johns"],
+    "-180": ["America/Argentina/Buenos_Aires", "America/Sao_Paulo", "America/Montevideo"],
+    "0":    ["Europe/London", "Europe/Dublin", "Europe/Lisbon", "Atlantic/Canary", "UTC"],
+    "60":   ["Europe/Berlin", "Europe/Paris", "Europe/Rome", "Europe/Madrid", "Europe/Amsterdam", "Europe/Brussels", "Europe/Vienna", "Europe/Warsaw", "Europe/Stockholm", "Europe/Oslo", "Europe/Zurich"],
+    "120":  ["Europe/Athens", "Europe/Helsinki", "Europe/Bucharest", "Europe/Sofia", "Europe/Tallinn", "Europe/Riga", "Europe/Vilnius", "Africa/Cairo", "Africa/Johannesburg"],
+    "180":  ["Europe/Moscow", "Europe/Istanbul", "Asia/Riyadh", "Africa/Nairobi", "Asia/Baghdad", "Europe/Minsk"],
+    "210":  ["Asia/Tehran"],
+    "240":  ["Asia/Dubai", "Asia/Baku", "Asia/Yerevan", "Europe/Samara"],
+    "270":  ["Asia/Kabul"],
+    "300":  ["Asia/Tashkent", "Asia/Karachi", "Asia/Yekaterinburg"],
+    "330":  ["Asia/Kolkata", "Asia/Calcutta"],
+    "345":  ["Asia/Kathmandu"],
+    "360":  ["Asia/Dhaka", "Asia/Almaty", "Asia/Omsk"],
+    "420":  ["Asia/Bangkok", "Asia/Jakarta", "Asia/Krasnoyarsk"],
+    "480":  ["Asia/Singapore", "Asia/Hong_Kong", "Asia/Taipei", "Australia/Perth", "Asia/Manila", "Asia/Shanghai"],
+    "540":  ["Asia/Tokyo", "Asia/Seoul", "Asia/Yakutsk"],
+    "570":  ["Australia/Adelaide", "Australia/Darwin"],
+    "600":  ["Australia/Sydney", "Australia/Melbourne", "Australia/Brisbane", "Asia/Vladivostok"],
+    "660":  ["Pacific/Noumea", "Asia/Magadan"],
+    "720":  ["Pacific/Auckland", "Pacific/Fiji"]
   };
 
   function getSpoofedTimezone(nativeTz, profileId) {
-    const seedStr = (profileId || '') + (window.location.hostname || '');
-    let hash = 0;
-    for (let i = 0; i < seedStr.length; i++) {
-      hash = ((hash << 5) - hash) + seedStr.charCodeAt(i);
-      hash |= 0;
-    }
-    const absHash = Math.abs(hash);
+    const nativeOffset = new Date().getTimezoneOffset();
+    const targetOffsetMinutes = -nativeOffset;
 
-    const candidates = TIMEZONE_OFFSET_GROUPS[nativeTz];
-    if (Array.isArray(candidates) && candidates.length > 0) {
-      const idx = absHash % candidates.length;
-      return candidates[idx];
+    let candidates = TIMEZONES_BY_OFFSET[String(targetOffsetMinutes)];
+
+    if (!candidates || candidates.length === 0) {
+      if (nativeTz && TIMEZONES_BY_OFFSET[nativeTz]) {
+        candidates = TIMEZONES_BY_OFFSET[nativeTz];
+      }
     }
-    return nativeTz;
+
+    if (!candidates || candidates.length === 0) {
+      const keys = Object.keys(TIMEZONES_BY_OFFSET).map(Number).sort((a, b) => Math.abs(a - targetOffsetMinutes) - Math.abs(b - targetOffsetMinutes));
+      if (keys.length > 0) {
+        candidates = TIMEZONES_BY_OFFSET[String(keys[0])];
+      }
+    }
+
+    if (!candidates || candidates.length === 0) return nativeTz || "UTC";
+
+    const profKey = profileId || activeProfile?.id || activeProfile?.name || 'default';
+    const seedStr = `${profKey}|${window.location.hostname || ''}`;
+    const absHash = Math.abs(hashString(seedStr));
+    const idx = absHash % candidates.length;
+    return candidates[idx];
   }
 
   // Intercept Intl.DateTimeFormat.prototype.resolvedOptions
@@ -765,33 +795,97 @@
       registerStealthFn(targetWin.getScreenDetails, 'getScreenDetails');
     }
 
-    // Gamepad, Bluetooth, WebHID & WebUSB API Neutering (PROTOTYPE ONLY)
+    // Helper to build realistic mock Gamepad
+    function createMockGamepad() {
+      const now = performance.now();
+      return {
+        id: "Xbox 360 Controller (STANDARD GAMEPAD Vendor: 045e Product: 028e)",
+        index: 0,
+        connected: true,
+        mapping: "standard",
+        timestamp: now,
+        buttons: Array.from({ length: 17 }, () => ({ pressed: false, touched: false, value: 0 })),
+        axes: [0, 0, 0, 0]
+      };
+    }
+
+    // Gamepad, Bluetooth, WebHID & WebUSB API Neutering & Mocking (PROTOTYPE ONLY)
     if (navProto) {
-      // getGamepads is a real METHOD (data property), not an accessor -
-      // same shape mismatch as getBattery above, same fix.
+      const profId = activeProfile.id || activeProfile.name || 'default';
+
+      // Gamepad Spoofing (On / Off / Connected Gamepad)
+      const gamepadMode = activeProfile.gamepadMode || (() => {
+        const hash = Math.abs(hashString(`${profId}|gamepad`));
+        return hash % 3 === 0 ? 'connected' : hash % 3 === 1 ? 'off' : 'standard';
+      })();
+
       wrapNativeMethod(navProto, 'getGamepads', (target, thisArg, args) => {
-        recordProbe('peripherals', 'navigator.getGamepads()');
+        recordProbe('peripherals', `navigator.getGamepads() [Mode: ${gamepadMode}]`);
+        if (gamepadMode === 'off') {
+          return [];
+        }
+        if (gamepadMode === 'connected') {
+          return [createMockGamepad(), null, null, null];
+        }
         return [null, null, null, null];
       });
 
-      const mockBluetooth = {
-        getAvailability: () => Promise.resolve(false),
-        getDevices: () => Promise.resolve([]),
-        requestDevice: () => Promise.reject(new DOMException("Bluetooth access disabled", "NotFoundError"))
-      };
-      overridePrototypeGetter(navProto, 'bluetooth', () => mockBluetooth, 'peripherals', 'navigator.bluetooth');
+      // Bluetooth Spoofing
+      const btMode = activeProfile.bluetoothMode || (() => {
+        const hash = Math.abs(hashString(`${profId}|bt`));
+        return hash % 2 === 0 ? 'enabled' : 'off';
+      })();
 
-      const mockHID = {
-        getDevices: () => Promise.resolve([]),
-        requestDevice: () => Promise.resolve([])
-      };
-      overridePrototypeGetter(navProto, 'hid', () => mockHID, 'peripherals', 'navigator.hid');
+      if (btMode === 'off') {
+        overridePrototypeGetter(navProto, 'bluetooth', () => undefined, 'peripherals', 'navigator.bluetooth [Off]');
+      } else {
+        const mockBluetooth = {
+          getAvailability: () => Promise.resolve(false),
+          getDevices: () => Promise.resolve([]),
+          requestDevice: () => Promise.reject(new DOMException("Bluetooth access disabled", "NotFoundError"))
+        };
+        overridePrototypeGetter(navProto, 'bluetooth', () => mockBluetooth, 'peripherals', 'navigator.bluetooth [Enabled]');
+      }
 
-      const mockUSB = {
-        getDevices: () => Promise.resolve([]),
-        requestDevice: () => Promise.reject(new DOMException("USB device access disabled", "NotFoundError"))
-      };
-      overridePrototypeGetter(navProto, 'usb', () => mockUSB, 'peripherals', 'navigator.usb');
+      // WebHID Spoofing
+      const hidMode = activeProfile.hidMode || (() => {
+        const hash = Math.abs(hashString(`${profId}|hid`));
+        return hash % 2 === 0 ? 'enabled' : 'off';
+      })();
+
+      if (hidMode === 'off') {
+        overridePrototypeGetter(navProto, 'hid', () => undefined, 'peripherals', 'navigator.hid [Off]');
+      } else {
+        const mockHID = {
+          getDevices: () => Promise.resolve([]),
+          requestDevice: () => Promise.resolve([])
+        };
+        overridePrototypeGetter(navProto, 'hid', () => mockHID, 'peripherals', 'navigator.hid [Enabled]');
+      }
+
+      // WebUSB Spoofing (On / Off / Connected USB Device)
+      const usbMode = activeProfile.usbMode || (() => {
+        const hash = Math.abs(hashString(`${profId}|usb`));
+        return hash % 3 === 0 ? 'connected' : hash % 3 === 1 ? 'off' : 'enabled';
+      })();
+
+      if (usbMode === 'off') {
+        overridePrototypeGetter(navProto, 'usb', () => undefined, 'peripherals', 'navigator.usb [Off]');
+      } else if (usbMode === 'connected') {
+        const mockUSBConnected = {
+          getDevices: () => Promise.resolve([
+            { vendorId: 0x045e, productId: 0x028e, productName: "USB Controller Device", serialNumber: "0001" }
+          ]),
+          requestDevice: () => Promise.reject(new DOMException("USB device access disabled", "NotFoundError"))
+        };
+        overridePrototypeGetter(navProto, 'usb', () => mockUSBConnected, 'peripherals', 'navigator.usb [1 Connected USB Device]');
+      } else {
+        const mockUSB = {
+          getDevices: () => Promise.resolve([]),
+          requestDevice: () => Promise.reject(new DOMException("USB device access disabled", "NotFoundError"))
+        };
+        overridePrototypeGetter(navProto, 'usb', () => mockUSB, 'peripherals', 'navigator.usb [0 USB Devices]');
+      }
     }
 
     // getBoundingClientRect/getClientRects used to add fresh Math.random()

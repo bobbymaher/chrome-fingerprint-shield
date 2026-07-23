@@ -67,13 +67,13 @@ function formatFullVersionListHeader(fullVersions) {
   return fullVersions.map(b => `"${b.brand}";v="${b.version}"`).join(', ');
 }
 
-// Deterministic per-day pick, not Math.random(). The third-party header
-// rule is one global declarativeNetRequest rule (DNR can't vary a header
-// value per matched third-party domain dynamically, only by static URL
-// filter), so it can't be scoped per-site the way in-page JS noise can -
-// but it doesn't need to re-roll on every settings save either. Seeding
-// from the calendar day keeps the picked profile stable for a day, then
-// rotates, instead of changing identity every time state syncs.
+// Deterministic rotation, not Math.random(). Headers are one global
+// declarativeNetRequest rule each (DNR can't vary a header value per
+// matched domain dynamically, only by static URL filter) so unlike the
+// in-page JS layer this can't be scoped per-visited-site - "primary"
+// picks one identity for ALL first-party requests, "third-party" one for
+// ALL third-party requests, each reseeded on the configured schedule
+// instead of on every settings save.
 function hashString(str) {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
@@ -104,24 +104,42 @@ function detectChromeVersion() {
   return 150;
 }
 
-function getRandomProfile(profiles) {
+function getTimeBucket(granularity) {
+  const now = new Date();
+  const y = now.getUTCFullYear(), mo = now.getUTCMonth(), d = now.getUTCDate();
+  const h = now.getUTCHours(), mi = now.getUTCMinutes(), s = now.getUTCSeconds();
+  if (granularity === 'hourly') return `${y}-${mo}-${d}-${h}`;
+  if (granularity === 'insane') return `${y}-${mo}-${d}-${h}-${mi}-${s}`;
+  return `${y}-${mo}-${d}`; // daily
+}
+
+// "sticky" uses a fixed seed (never rotates on its own - the pick only
+// changes if the profile pool itself changes, e.g. a new smart profile
+// added), anything else reseeds from the current time bucket.
+function pickProfileForRotation(profiles, rotation, seedPrefix) {
   const keys = Object.keys(profiles || {}).sort();
   if (keys.length === 0) return buildAllProfiles(detectChromeVersion())['cheap_win10_edge'];
-  const now = new Date();
-  const dayStr = `${now.getUTCFullYear()}-${now.getUTCMonth()}-${now.getUTCDate()}`;
-  const pick = Math.floor(mulberry32(hashString(dayStr))() * keys.length);
+  const seed = rotation === 'sticky' ? `${seedPrefix}|sticky` : `${seedPrefix}|${getTimeBucket(rotation)}`;
+  const pick = Math.floor(mulberry32(hashString(seed))() * keys.length);
   return profiles[keys[pick]];
 }
 
-async function updateDynamicRules(profile, isEnabled, autoMode, profiles) {
+async function updateDynamicRules(manualProfile, isEnabled, primaryRotation, thirdPartyRotation, profiles) {
   try {
     const existingRules = await chrome.declarativeNetRequest.getDynamicRules();
     const removeRuleIds = existingRules.map(r => r.id);
 
-    if (!isEnabled || !profile) {
+    if (!isEnabled || !manualProfile) {
       await chrome.declarativeNetRequest.updateDynamicRules({ removeRuleIds });
       return;
     }
+
+    // "sticky" = whatever's manually selected in the Profiles tab, until
+    // changed. Anything faster overrides that with a time-bucket pick,
+    // site-wide (DNR can't vary this per visited domain - see note above).
+    const profile = primaryRotation === 'sticky' || !primaryRotation
+      ? manualProfile
+      : pickProfileForRotation(profiles, primaryRotation, 'primary');
 
     const firstPartyHeaders = [
       { header: 'User-Agent', operation: 'set', value: profile.userAgent },
@@ -162,46 +180,44 @@ async function updateDynamicRules(profile, isEnabled, autoMode, profiles) {
       }
     ];
 
-    // Strategy PER_SITE_3RD_RANDOM: Third-Party randomized headers
-    if (autoMode === 'PER_SITE_3RD_RANDOM' || !autoMode) {
-      const thirdPartyProfile = getRandomProfile(profiles);
-      const thirdPartyHeaders = [
-        { header: 'User-Agent', operation: 'set', value: thirdPartyProfile.userAgent },
-        { header: 'Sec-Ch-Ua', operation: 'set', value: formatBrandsHeader(thirdPartyProfile.brands) },
-        { header: 'Sec-Ch-Ua-Mobile', operation: 'set', value: '?0' },
-        { header: 'Sec-Ch-Ua-Platform', operation: 'set', value: `"${thirdPartyProfile.platformName || 'Windows'}"` },
-        { header: 'Sec-Ch-Ua-Platform-Version', operation: 'set', value: `"${thirdPartyProfile.platformVersion || '10.0.0'}"` },
-        { header: 'Sec-Ch-Ua-Arch', operation: 'set', value: `"${thirdPartyProfile.architecture || 'x86'}"` },
-        { header: 'Sec-Ch-Ua-Bitness', operation: 'set', value: `"${thirdPartyProfile.bitness || '64'}"` },
-        { header: 'Sec-Ch-Ua-Model', operation: 'set', value: `"${thirdPartyProfile.model || ''}"` }
-      ];
+    // Third-party header identity, independent of the primary one.
+    const thirdPartyProfile = pickProfileForRotation(profiles, thirdPartyRotation || 'daily', 'thirdparty');
+    const thirdPartyHeaders = [
+      { header: 'User-Agent', operation: 'set', value: thirdPartyProfile.userAgent },
+      { header: 'Sec-Ch-Ua', operation: 'set', value: formatBrandsHeader(thirdPartyProfile.brands) },
+      { header: 'Sec-Ch-Ua-Mobile', operation: 'set', value: '?0' },
+      { header: 'Sec-Ch-Ua-Platform', operation: 'set', value: `"${thirdPartyProfile.platformName || 'Windows'}"` },
+      { header: 'Sec-Ch-Ua-Platform-Version', operation: 'set', value: `"${thirdPartyProfile.platformVersion || '10.0.0'}"` },
+      { header: 'Sec-Ch-Ua-Arch', operation: 'set', value: `"${thirdPartyProfile.architecture || 'x86'}"` },
+      { header: 'Sec-Ch-Ua-Bitness', operation: 'set', value: `"${thirdPartyProfile.bitness || '64'}"` },
+      { header: 'Sec-Ch-Ua-Model', operation: 'set', value: `"${thirdPartyProfile.model || ''}"` }
+    ];
 
-      if (thirdPartyProfile.fullVersionList) {
-        thirdPartyHeaders.push({
-          header: 'Sec-Ch-Ua-Full-Version-List',
-          operation: 'set',
-          value: formatFullVersionListHeader(thirdPartyProfile.fullVersionList)
-        });
-      }
-
-      addRules.push({
-        id: RULE_ID_THIRD_PARTY,
-        priority: 2,
-        action: {
-          type: 'modifyHeaders',
-          requestHeaders: thirdPartyHeaders
-        },
-        condition: {
-          urlFilter: '*',
-          domainType: 'thirdParty',
-          resourceTypes: [
-            'main_frame', 'sub_frame', 'stylesheet', 'script', 'image',
-            'font', 'object', 'xmlhttprequest', 'ping', 'csp_report',
-            'media', 'websocket', 'other'
-          ]
-        }
+    if (thirdPartyProfile.fullVersionList) {
+      thirdPartyHeaders.push({
+        header: 'Sec-Ch-Ua-Full-Version-List',
+        operation: 'set',
+        value: formatFullVersionListHeader(thirdPartyProfile.fullVersionList)
       });
     }
+
+    addRules.push({
+      id: RULE_ID_THIRD_PARTY,
+      priority: 2,
+      action: {
+        type: 'modifyHeaders',
+        requestHeaders: thirdPartyHeaders
+      },
+      condition: {
+        urlFilter: '*',
+        domainType: 'thirdParty',
+        resourceTypes: [
+          'main_frame', 'sub_frame', 'stylesheet', 'script', 'image',
+          'font', 'object', 'xmlhttprequest', 'ping', 'csp_report',
+          'media', 'websocket', 'other'
+        ]
+      }
+    });
 
     // Rule 3: Third-Party Referer Trimming (Origin Only)
     addRules.push({
@@ -263,11 +279,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message) return;
 
   if (message.type === 'SYNC_STATE') {
-    chrome.storage.local.get(['profiles', 'activeProfile', 'isEnabled', 'autoMode'], (data) => {
+    chrome.storage.local.get(['profiles', 'activeProfile', 'isEnabled', 'primaryRotation', 'thirdPartyRotation'], (data) => {
       const profiles = data.profiles || buildAllProfiles(detectChromeVersion());
       const activeId = data.activeProfile || 'cheap_win10_edge';
       const profile = profiles[activeId];
-      updateDynamicRules(profile, data.isEnabled, data.autoMode, profiles);
+      updateDynamicRules(profile, data.isEnabled, data.primaryRotation, data.thirdPartyRotation, profiles);
       sendResponse({ status: 'OK' });
     });
     return true;
@@ -317,20 +333,22 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 // extension update) reach users who already have a populated storage from
 // before. Custom profiles the user authored are left untouched.
 function refreshBuiltInProfiles() {
-  chrome.storage.local.get(['profiles', 'activeProfile', 'isEnabled', 'autoMode', 'excludedDomains'], (data) => {
+  chrome.storage.local.get(['profiles', 'activeProfile', 'isEnabled', 'primaryRotation', 'thirdPartyRotation', 'excludedDomains'], (data) => {
     const builtIns = buildAllProfiles(detectChromeVersion());
     const mergedProfiles = Object.assign({}, data.profiles || {}, builtIns);
     const activeId = data.activeProfile || 'cheap_win10_edge';
     const isEnabled = data.isEnabled !== undefined ? data.isEnabled : true;
-    const autoMode = data.autoMode || 'PER_SITE_3RD_RANDOM';
+    const primaryRotation = data.primaryRotation || 'sticky';
+    const thirdPartyRotation = data.thirdPartyRotation || 'daily';
 
     chrome.storage.local.set({
       profiles: mergedProfiles,
       activeProfile: activeId,
       isEnabled: isEnabled,
-      autoMode: autoMode
+      primaryRotation: primaryRotation,
+      thirdPartyRotation: thirdPartyRotation
     }, () => {
-      updateDynamicRules(mergedProfiles[activeId] || mergedProfiles['cheap_win10_edge'], isEnabled, autoMode, mergedProfiles);
+      updateDynamicRules(mergedProfiles[activeId] || mergedProfiles['cheap_win10_edge'], isEnabled, primaryRotation, thirdPartyRotation, mergedProfiles);
     });
 
     registerShieldScripts(data.excludedDomains || []);

@@ -17,13 +17,12 @@ Header & Fingerprint Shield is a browser extension built with Manifest V3 for Ch
 - Toggleable: **Config → Verbose Console Logging** (on by default).
 
 ### 2. Profile Switching & Dynamic Headers
-- **`PER_SITE_3RD_RANDOM`** (default): First-party site requests use a sticky assigned browser profile to preserve logins and cookies, while third-party requests (CDNs, ad networks, trackers) receive an identity that rotates once per calendar day.
-- **`PER_SITE`**: Sticky profile per top-level domain, no third-party rotation.
-- **`PER_NAVIGATION`**: A fresh random profile on every page load.
-- **`OFF`**: Always uses the manually selected profile.
-- **Primary Domain Rotation** (Config tab): optionally makes the *first-party* identity itself rotate too, not just third parties - off (sticky, default), daily, hourly, every minute, or "insane mode" every second. Anything faster than daily will break logged-in sessions, live WebSockets, and trigger login/CAPTCHA challenges on sites that check for a consistent fingerprint - the popup warns before you enable it.
-- Implemented via dynamic `declarativeNetRequest` rules to modify `User-Agent`, `Sec-CH-UA`, `Sec-CH-UA-Mobile`, and `Sec-CH-UA-Platform` HTTP headers at the network layer, plus in-page JS overrides (`navigator.*`, canvas, WebGL) for the same identity.
-- All rotation is **deterministic**, not `Math.random()`: seeded from `hostname + calendar day` (or hour/minute/second for primary rotation). Same inputs give the same pick within a session/bucket - avoids both a fingerprinting tell (real hardware doesn't change every call) and, in a few places, actual crashes (see Noise section below).
+Two independent rotation settings (Config tab), each with the same four options - **Sticky**, **Daily**, **Hourly**, **Insane** (reseeds every second):
+- **Primary Site Rotation**: the identity the site you're actually visiting sees. Sticky (default) assigns one profile per top-level domain forever, preserving logins/cookies.
+- **Third-Party Rotation**: the identity ad networks, CDNs, and trackers embedded on the page see, resolved independently per third-party frame (each keyed to its own hostname, not shared) - defaults to Daily.
+- Applies at both layers: `declarativeNetRequest` HTTP headers (`User-Agent`, `Sec-CH-UA`, `Sec-CH-UA-Mobile`, `Sec-CH-UA-Platform`) and in-page JS overrides (`navigator.*`, canvas, WebGL) for the same resolved identity. The header layer can't vary per visited domain the way in-page JS can - `declarativeNetRequest` rules are static URL-pattern matches, not computed per request - so "Primary"/"Third-Party" there means one rule for all first-party requests and one for all third-party requests, not per-site.
+- Anything faster than Daily WILL break logged-in sessions, live WebSockets, and trigger login/CAPTCHA challenges on sites that check for a consistent fingerprint - the popup warns before you enable Insane mode on either setting.
+- All rotation is **deterministic**, not `Math.random()`: seeded from `hostname + calendar day` (or hour/second for faster settings). Same inputs give the same pick within a session/bucket - avoids both a fingerprinting tell (real hardware doesn't change every call) and, in a few places, actual crashes (see Noise section below).
 
 ### 3. Per-Site Exclusion
 - **Config → Excluded Sites**: hard-excludes a domain from the shield entirely - the content scripts never inject there at all, rather than injecting and trying to behave normally. Use this for sites that break under spoofing (bank logins, sites that bind sessions to a fingerprint).
