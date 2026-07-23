@@ -181,6 +181,8 @@ async function updateDynamicRules(manualProfile, isEnabled, primaryRotation, thi
     };
     if (allExcludedDomains.length > 0) {
       firstPartyCondition.excludedDomains = allExcludedDomains;
+      firstPartyCondition.excludedRequestDomains = allExcludedDomains;
+      firstPartyCondition.excludedInitiatorDomains = allExcludedDomains;
     }
 
     const addRules = [
@@ -227,6 +229,8 @@ async function updateDynamicRules(manualProfile, isEnabled, primaryRotation, thi
     };
     if (allExcludedDomains.length > 0) {
       thirdPartyCondition.excludedDomains = allExcludedDomains;
+      thirdPartyCondition.excludedRequestDomains = allExcludedDomains;
+      thirdPartyCondition.excludedInitiatorDomains = allExcludedDomains;
     }
 
     addRules.push({
@@ -251,6 +255,8 @@ async function updateDynamicRules(manualProfile, isEnabled, primaryRotation, thi
     };
     if (allExcludedDomains.length > 0) {
       refererCondition.excludedDomains = allExcludedDomains;
+      refererCondition.excludedRequestDomains = allExcludedDomains;
+      refererCondition.excludedInitiatorDomains = allExcludedDomains;
     }
 
     addRules.push({
@@ -272,6 +278,8 @@ async function updateDynamicRules(manualProfile, isEnabled, primaryRotation, thi
     };
     if (allExcludedDomains.length > 0) {
       cleanUrlCondition.excludedDomains = allExcludedDomains;
+      cleanUrlCondition.excludedRequestDomains = allExcludedDomains;
+      cleanUrlCondition.excludedInitiatorDomains = allExcludedDomains;
     }
 
     addRules.push({
