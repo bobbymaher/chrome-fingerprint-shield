@@ -45,13 +45,6 @@ function expandAllExcludedDomains(excludedDomains) {
 }
 
 async function registerShieldScripts(excludedDomains) {
-  try {
-    const existing = await chrome.scripting.getRegisteredContentScripts({ ids: CONTENT_SCRIPT_IDS });
-    if (existing.length > 0) {
-      await chrome.scripting.unregisterContentScripts({ ids: CONTENT_SCRIPT_IDS });
-    }
-  } catch (e) {}
-
   const allExcluded = expandAllExcludedDomains(excludedDomains);
   const excludeMatches = [];
   allExcluded.forEach((host) => {
@@ -60,38 +53,56 @@ async function registerShieldScripts(excludedDomains) {
     excludeMatches.push(`*://*.${host}/*`);
   });
 
+  const scripts = [
+    {
+      id: 'shield-isolated',
+      matches: ['<all_urls>'],
+      excludeMatches: excludeMatches.length ? excludeMatches : undefined,
+      js: ['content_isolated.js'],
+      runAt: 'document_start',
+      world: 'ISOLATED',
+      allFrames: true,
+      matchOriginAsFallback: true
+    },
+    {
+      id: 'shield-inject',
+      matches: ['<all_urls>'],
+      excludeMatches: excludeMatches.length ? excludeMatches : undefined,
+      js: ['content_inject.js'],
+      runAt: 'document_start',
+      world: 'MAIN',
+      allFrames: true,
+      matchOriginAsFallback: true
+    }
+  ];
+
   try {
-    await chrome.scripting.registerContentScripts([
-      {
+    const existing = await chrome.scripting.getRegisteredContentScripts({ ids: CONTENT_SCRIPT_IDS });
+    if (existing.length > 0) {
+      await chrome.scripting.updateContentScripts([{
         id: 'shield-isolated',
-        matches: ['<all_urls>'],
-        excludeMatches: excludeMatches.length ? excludeMatches : undefined,
-        js: ['content_isolated.js'],
-        runAt: 'document_start',
-        world: 'ISOLATED',
-        allFrames: true,
-        matchOriginAsFallback: true
-      },
-      {
+        excludeMatches: excludeMatches.length ? excludeMatches : undefined
+      }, {
         id: 'shield-inject',
-        matches: ['<all_urls>'],
-        excludeMatches: excludeMatches.length ? excludeMatches : undefined,
-        js: ['content_inject.js'],
-        runAt: 'document_start',
-        world: 'MAIN',
-        allFrames: true,
-        matchOriginAsFallback: true
-      }
-    ]);
+        excludeMatches: excludeMatches.length ? excludeMatches : undefined
+      }]);
+    } else {
+      await chrome.scripting.registerContentScripts(scripts);
+    }
   } catch (e) {
     console.error('[Fingerprint Shield] Failed to register content scripts:', e);
   }
 }
 
-const RULE_ID_FIRST_PARTY = 1;
-const RULE_ID_THIRD_PARTY = 2;
+const RULE_ID_FIRST_PARTY_NAV = 11;
+const RULE_ID_FIRST_PARTY_SUB = 12;
+const RULE_ID_THIRD_PARTY_NAV = 21;
+const RULE_ID_THIRD_PARTY_SUB = 22;
+const RULE_ID_RESTORE_NAV = 99;
 const RULE_ID_REFERER_TRIM = 3;
 const RULE_ID_REMOVE_TRACKING_PARAMS = 4;
+const RULE_ID_ETAGS_STRIP_1 = 31;
+const RULE_ID_ETAGS_STRIP_2 = 32;
 
 function formatBrandsHeader(brands) {
   if (!brands || !Array.isArray(brands)) return '"Not:A-Brand";v="24", "Chromium";v="150", "Microsoft Edge";v="150"';
@@ -195,30 +206,73 @@ async function updateDynamicRules(manualProfile, isEnabled, primaryRotation, thi
       });
     }
 
-    // Rule 1: Default Header Override for ALL requests except excluded domains
-    const firstPartyCondition = {
-      urlFilter: '*',
-      resourceTypes: [
-        'main_frame', 'sub_frame', 'stylesheet', 'script', 'image',
-        'font', 'object', 'xmlhttprequest', 'ping', 'csp_report',
-        'media', 'websocket', 'other'
-      ]
-    };
+    if (profile.spoofAcceptLanguage !== false) {
+      const languages = ['en-US,en;q=0.9', 'en-GB,en;q=0.9', 'en-AU,en;q=0.9', 'en-CA,en;q=0.9', 'en-NZ,en;q=0.9'];
+      const langSeed = primaryRotation === 'sticky' ? 'primary|sticky' : `primary|${getTimeBucket(primaryRotation)}`;
+      const langPick = Math.floor(mulberry32(hashString(langSeed))() * languages.length);
+      firstPartyHeaders.push({ header: 'Accept-Language', operation: 'set', value: languages[langPick] });
+    }
+
+    // Real device fallback headers for redirect overrides
+    let realPlatform = "Windows";
+    let realPlatformVersion = "10.0.0";
+    let realArch = "x86";
+    let realBitness = "64";
+    let realModel = "";
+    let realBrands = [];
+    
+    try {
+      if (navigator.userAgentData) {
+        realBrands = navigator.userAgentData.brands || [];
+        if (navigator.userAgentData.getHighEntropyValues) {
+          const uaData = await navigator.userAgentData.getHighEntropyValues(['platform', 'platformVersion', 'architecture', 'bitness', 'model']);
+          realPlatform = uaData.platform || realPlatform;
+          realPlatformVersion = uaData.platformVersion || realPlatformVersion;
+          realArch = uaData.architecture || realArch;
+          realBitness = uaData.bitness || realBitness;
+          realModel = uaData.model || realModel;
+        }
+      }
+    } catch(e) {}
+
+    const restoreHeaders = [
+      { header: 'User-Agent', operation: 'set', value: navigator.userAgent },
+      { header: 'Sec-Ch-Ua-Mobile', operation: 'set', value: navigator.userAgentData?.mobile ? '?1' : '?0' },
+      { header: 'Sec-Ch-Ua-Platform', operation: 'set', value: `"${realPlatform}"` },
+      { header: 'Sec-Ch-Ua-Platform-Version', operation: 'set', value: `"${realPlatformVersion}"` },
+      { header: 'Sec-Ch-Ua-Arch', operation: 'set', value: `"${realArch}"` },
+      { header: 'Sec-Ch-Ua-Bitness', operation: 'set', value: `"${realBitness}"` },
+      { header: 'Sec-Ch-Ua-Model', operation: 'set', value: `"${realModel}"` }
+    ];
+    if (realBrands.length > 0) {
+      restoreHeaders.push({ header: 'Sec-Ch-Ua', operation: 'set', value: formatBrandsHeader(realBrands) });
+    }
+
+    const navResourceTypes = ['main_frame', 'sub_frame'];
+    const subResourceTypes = ['stylesheet', 'script', 'image', 'font', 'object', 'xmlhttprequest', 'ping', 'csp_report', 'media', 'websocket', 'other'];
+
+    // Rule 1: First Party Headers (Split into Nav and Sub)
+    const firstPartyNavCondition = { urlFilter: '*', resourceTypes: navResourceTypes };
+    const firstPartySubCondition = { urlFilter: '*', resourceTypes: subResourceTypes };
+    
     if (allExcludedDomains.length > 0) {
-      firstPartyCondition.excludedDomains = allExcludedDomains;
-      firstPartyCondition.excludedRequestDomains = allExcludedDomains;
-      firstPartyCondition.excludedInitiatorDomains = allExcludedDomains;
+      firstPartyNavCondition.excludedRequestDomains = allExcludedDomains;
+      firstPartySubCondition.excludedDomains = allExcludedDomains;
+      firstPartySubCondition.excludedInitiatorDomains = allExcludedDomains;
     }
 
     const addRules = [
       {
-        id: RULE_ID_FIRST_PARTY,
+        id: RULE_ID_FIRST_PARTY_NAV,
         priority: 1,
-        action: {
-          type: 'modifyHeaders',
-          requestHeaders: firstPartyHeaders
-        },
-        condition: firstPartyCondition
+        action: { type: 'modifyHeaders', requestHeaders: firstPartyHeaders },
+        condition: firstPartyNavCondition
+      },
+      {
+        id: RULE_ID_FIRST_PARTY_SUB,
+        priority: 1,
+        action: { type: 'modifyHeaders', requestHeaders: firstPartyHeaders },
+        condition: firstPartySubCondition
       }
     ];
 
@@ -243,30 +297,47 @@ async function updateDynamicRules(manualProfile, isEnabled, primaryRotation, thi
       });
     }
 
-    const thirdPartyCondition = {
-      urlFilter: '*',
-      domainType: 'thirdParty',
-      resourceTypes: [
-        'main_frame', 'sub_frame', 'stylesheet', 'script', 'image',
-        'font', 'object', 'xmlhttprequest', 'ping', 'csp_report',
-        'media', 'websocket', 'other'
-      ]
-    };
+    if (thirdPartyProfile.spoofAcceptLanguage !== false) {
+      const languages = ['en-US,en;q=0.9', 'en-GB,en;q=0.9', 'en-AU,en;q=0.9', 'en-CA,en;q=0.9', 'en-NZ,en;q=0.9'];
+      const langSeed = thirdPartyRotation === 'sticky' ? 'thirdparty|sticky' : `thirdparty|${getTimeBucket(thirdPartyRotation)}`;
+      const langPick = Math.floor(mulberry32(hashString(langSeed))() * languages.length);
+      thirdPartyHeaders.push({ header: 'Accept-Language', operation: 'set', value: languages[langPick] });
+    }
+
+    const thirdPartyNavCondition = { urlFilter: '*', domainType: 'thirdParty', resourceTypes: navResourceTypes };
+    const thirdPartySubCondition = { urlFilter: '*', domainType: 'thirdParty', resourceTypes: subResourceTypes };
+
     if (allExcludedDomains.length > 0) {
-      thirdPartyCondition.excludedDomains = allExcludedDomains;
-      thirdPartyCondition.excludedRequestDomains = allExcludedDomains;
-      thirdPartyCondition.excludedInitiatorDomains = allExcludedDomains;
+      thirdPartyNavCondition.excludedRequestDomains = allExcludedDomains;
+      thirdPartySubCondition.excludedDomains = allExcludedDomains;
+      thirdPartySubCondition.excludedInitiatorDomains = allExcludedDomains;
     }
 
     addRules.push({
-      id: RULE_ID_THIRD_PARTY,
+      id: RULE_ID_THIRD_PARTY_NAV,
       priority: 2,
-      action: {
-        type: 'modifyHeaders',
-        requestHeaders: thirdPartyHeaders
-      },
-      condition: thirdPartyCondition
+      action: { type: 'modifyHeaders', requestHeaders: thirdPartyHeaders },
+      condition: thirdPartyNavCondition
+    }, {
+      id: RULE_ID_THIRD_PARTY_SUB,
+      priority: 2,
+      action: { type: 'modifyHeaders', requestHeaders: thirdPartyHeaders },
+      condition: thirdPartySubCondition
     });
+
+    // Explicit override rule for redirect caching protection
+    if (allExcludedDomains.length > 0) {
+      addRules.push({
+        id: RULE_ID_RESTORE_NAV,
+        priority: 99,
+        action: { type: 'modifyHeaders', requestHeaders: restoreHeaders },
+        condition: {
+          urlFilter: '*',
+          requestDomains: allExcludedDomains,
+          resourceTypes: navResourceTypes
+        }
+      });
+    }
 
     // Rule 3: Third-Party Referer Trimming (Origin Only)
     const refererCondition = {
@@ -325,6 +396,43 @@ async function updateDynamicRules(manualProfile, isEnabled, primaryRotation, thi
       },
       condition: cleanUrlCondition
     });
+
+    if (profile.blockETags) {
+      const etagCondition = {
+        urlFilter: '*',
+        domainType: 'thirdParty',
+        resourceTypes: [
+          'main_frame', 'sub_frame', 'stylesheet', 'script', 'image',
+          'font', 'object', 'xmlhttprequest', 'ping', 'csp_report',
+          'media', 'websocket', 'other'
+        ]
+      };
+      if (allExcludedDomains.length > 0) {
+        etagCondition.excludedDomains = allExcludedDomains;
+        etagCondition.excludedRequestDomains = allExcludedDomains;
+        etagCondition.excludedInitiatorDomains = allExcludedDomains;
+      }
+      addRules.push({
+        id: RULE_ID_ETAGS_STRIP_1,
+        priority: 3,
+        action: {
+          type: 'modifyHeaders',
+          responseHeaders: [{ header: 'ETag', operation: 'remove' }]
+        },
+        condition: etagCondition
+      }, {
+        id: RULE_ID_ETAGS_STRIP_2,
+        priority: 3,
+        action: {
+          type: 'modifyHeaders',
+          requestHeaders: [
+            { header: 'If-None-Match', operation: 'remove' },
+            { header: 'If-Modified-Since', operation: 'remove' }
+          ]
+        },
+        condition: etagCondition
+      });
+    }
 
     await chrome.declarativeNetRequest.updateDynamicRules({
       removeRuleIds,
